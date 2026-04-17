@@ -107,10 +107,14 @@ jobs:
           # Defaults
           SKIP=false; LEGACY=false
           case "$MM" in
-            5.*)
-              # PHP 5 is too old for any modern toolchain on Linux or Mac.
+            5.*|7.0)
+              # PHP 5.x: too old for any modern toolchain.
+              # PHP 7.0: ext/intl uses `using icu::UnicodeString` which doesn't
+              # work against ICU 66+ (Ubuntu 20.04+) where the namespace
+              # alias was changed; PHP 7.1+ already routes around this.
+              # Both are EOL since 2018-12 (7.0) / 2020-12 (5.x), so skip.
               SKIP=true; LEGACY=true
-              echo "::warning::PHP $MM Linux/Mac builds disabled" ;;
+              echo "::warning::PHP $MM Linux/Mac builds disabled (toolchain incompatibility)" ;;
             7.*|8.0)
               # 7.x and 8.0 compile on Linux via docker:ubuntu:20.04 (OpenSSL 1.1.1,
               # libxml2 2.9). On modern macOS the bundled libxml2 (2.13+) changed
