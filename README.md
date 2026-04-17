@@ -65,9 +65,9 @@ curl -L -o php.tar.xz \
 | 8.3   | ✅      | ✅        | ✅          | OpenSSL 3, native build                                      |
 | 8.2   | ✅      | ✅        | ✅          | OpenSSL 3, native build                                      |
 | 8.1   | ✅      | ✅        | ✅          | OpenSSL 3, native build                                      |
-| 8.0   | ✅      | ✅        | ✅          | OpenSSL 1.1 (Linux docker / Mac brew openssl@1.1 + libxml2 2.9) |
-| 7.4   | ✅      | ✅        | ✅          | OpenSSL 1.1 + libxml2 2.9 from source                        |
-| 7.1–7.3 | ✅    | ✅        | ✅          | docker ubuntu:20.04 (OpenSSL 1.1, libxml2 2.9)               |
+| 8.0   | ✅      | ✅        | ❌          | OpenSSL 1.1 (Linux docker); macOS libxml2 + icu4c@78 ABI break |
+| 7.4   | ✅      | ✅        | ❌          | OpenSSL 1.1 via docker; macOS skipped                        |
+| 7.1–7.3 | ✅    | ✅        | ❌          | docker ubuntu:20.04 (OpenSSL 1.1); macOS skipped             |
 | 7.0   | ✅      | ❌        | ❌          | ICU 66+ namespace alias break; Windows-only                  |
 | 5.6   | ✅      | ❌        | ❌          | EOL; Windows-only via php.net                                |
 

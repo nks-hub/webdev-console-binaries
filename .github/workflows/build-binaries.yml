@@ -117,11 +117,17 @@ jobs:
               echo "::warning::PHP $MM Linux/Mac builds disabled (toolchain incompatibility)" ;;
             7.*|8.0)
               # 7.x and 8.0 compile on Linux via docker:ubuntu:20.04 (OpenSSL 1.1.1,
-              # libxml2 2.9). On macOS the brew libxml2 2.13+ tightened
-              # const-correctness in xmlError* and breaks PHP 7.x/8.0 ext/libxml.
-              # We now build libxml2 2.9.14 from source first (see "macOS — build
-              # libxml2 2.9" step) and point PHP configure at it via
-              # --with-libxml-dir=PREFIX, so 7.x/8.0 macOS works again.
+              # libxml2 2.9). macOS has two independent ABI breaks vs legacy PHP:
+              #   (a) brew libxml2 2.13+ tightened const-correctness in xmlError*,
+              #       breaking ext/libxml compile.
+              #   (b) brew icu4c@78 uses C++17/20 features in stringpiece.h
+              #       (std::is_same_v<...>) that PHP 7.x/8.0 ext/intl C++
+              #       code can't parse.
+              # Building both libxml2 2.9 and ICU 66 from source on every CI
+              # run costs ~20min extra and doesn't resolve every downstream
+              # deprecation. Legacy PHP on macOS is skipped; Linux (docker
+              # ubuntu:20.04) still builds fully.
+              if [ "$TGT" = "macos-arm64" ]; then SKIP=true; echo "::warning::PHP $MM macOS skipped (libxml2 + icu ABI)"; fi
               LEGACY=true ;;
             *)
               # 8.1+: native build, OpenSSL 3.
