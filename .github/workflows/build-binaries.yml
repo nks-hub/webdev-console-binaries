@@ -283,6 +283,64 @@ jobs:
           make install
           ls "$PREFIX/bin/" "$PREFIX/sbin/"
 
+      # ── Install PECL extensions: apcu, redis, xdebug, imagick, mongodb,
+      # memcached, swoole, igbinary, yaml, oauth.
+      # Versions selected for compatibility with each PHP minor (per agentic
+      # research against pecl.php.net release matrices, Imagick #709, Xdebug
+      # compat docs, phpredis releases). Some extensions skip newer PHP
+      # because upstream hasn't tagged a compatible release yet.
+      - name: Install PECL extensions (Linux modern + macOS)
+        if: (matrix.target == 'macos-arm64' || (matrix.target == 'linux-x64' && env.legacy_ssl != 'true')) && env.skip_source != 'true'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          MM="${{ steps.ver.outputs.major_minor }}"
+          PREFIX="${{ github.workspace }}/install/php-${VER}"
+          export PATH="$PREFIX/bin:$PATH"
+          # Build deps for ext native libs
+          if [ "${{ matrix.target }}" = "macos-arm64" ]; then
+            brew install --formula imagemagick libmemcached libyaml || true
+          else
+            sudo apt-get install -y -q libmagickwand-dev libmemcached-dev libyaml-dev
+          fi
+          # Pick PECL version per PHP minor
+          case "$MM" in
+            7.*)         IMAGICK=3.7.0; XDEBUG=3.4.7; REDIS=6.3.0; MONGODB=1.20.1; APCU=5.1.28; MEMCACHED=3.4.0; SWOOLE=4.8.13; IGBINARY=3.2.16; YAML=2.2.5; OAUTH=2.0.10 ;;
+            8.0)         IMAGICK=3.7.0; XDEBUG=3.4.7; REDIS=6.3.0; MONGODB=1.20.1; APCU=5.1.28; MEMCACHED=3.4.0; SWOOLE=5.1.8;  IGBINARY=3.2.16; YAML=2.2.5; OAUTH=2.0.10 ;;
+            8.1)         IMAGICK=3.7.0; XDEBUG=3.5.1; REDIS=6.3.0; MONGODB=2.2.1;  APCU=5.1.28; MEMCACHED=3.4.0; SWOOLE=6.1.7;  IGBINARY=3.2.16; YAML=2.2.5; OAUTH=2.0.10 ;;
+            8.2|8.3)     IMAGICK=3.7.0; XDEBUG=3.5.1; REDIS=6.3.0; MONGODB=2.2.1;  APCU=5.1.28; MEMCACHED=3.4.0; SWOOLE=6.2.0;  IGBINARY=3.2.16; YAML=2.2.5; OAUTH=2.0.10 ;;
+            8.4)         IMAGICK=3.8.1; XDEBUG=3.5.1; REDIS=6.3.0; MONGODB=2.2.1;  APCU=5.1.28; MEMCACHED=3.4.0; SWOOLE=6.2.0;  IGBINARY=3.2.16; YAML=2.2.5; OAUTH= ;;
+            8.5)         IMAGICK=3.8.1; XDEBUG=3.5.1; REDIS=6.3.0; MONGODB=2.2.1;  APCU=5.1.28; MEMCACHED=;      SWOOLE=6.2.0;  IGBINARY=3.2.16; YAML=2.2.5; OAUTH= ;;
+          esac
+          # Each pecl install allowed to fail individually so one bad ext doesn't kill the whole step
+          for spec in "apcu-$APCU" "redis-$REDIS" "xdebug-$XDEBUG" "igbinary-$IGBINARY" "yaml-$YAML" "imagick-$IMAGICK" "mongodb-$MONGODB" "swoole-$SWOOLE" "memcached-$MEMCACHED" "oauth-$OAUTH"; do
+            name="${spec%-*}"; ver="${spec##*-}"
+            [ -z "$ver" ] && { echo "SKIP $name (no version for PHP $MM)"; continue; }
+            echo "::group::pecl install $spec"
+            yes '' | "$PREFIX/bin/pecl" install -f "$spec" 2>&1 | tail -10 || echo "::warning::pecl install $spec failed (skipped)"
+            echo "::endgroup::"
+          done
+          # IMAP via PECL for 8.4+ (was removed from core in 8.4)
+          case "$MM" in
+            8.4|8.5)
+              if [ "${{ matrix.target }}" = "linux-x64" ]; then
+                sudo apt-get install -y -q libc-client-dev libkrb5-dev || true
+              fi
+              yes '' | "$PREFIX/bin/pecl" install -f imap-1.0.3 2>&1 | tail -10 || echo "::warning::imap PECL skipped" ;;
+          esac
+          # Wire all built .so into php.ini
+          INI="$PREFIX/lib/php.ini"
+          cp "$PREFIX/lib/php.ini-production" "$INI" 2>/dev/null || cp php-${VER}/php.ini-production "$INI" 2>/dev/null || true
+          for so in "$PREFIX"/lib/php/extensions/*/*.so; do
+            base=$(basename "$so" .so)
+            # opcache, xdebug = zend_extension; rest = extension
+            case "$base" in
+              opcache|xdebug) echo "zend_extension=$base" >> "$INI" ;;
+              *)              echo "extension=$base" >> "$INI" ;;
+            esac
+          done
+          "$PREFIX/bin/php" -m
+
       - name: Package — Linux/macOS tar.xz
         if: matrix.target != 'windows-x64' && env.skip_source != 'true'
         shell: bash

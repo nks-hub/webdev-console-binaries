@@ -76,13 +76,13 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q build-essential libapr1-dev libaprutil1-dev \
             libpcre2-dev libssl-dev libxml2-dev zlib1g-dev libnghttp2-dev \
-            libbrotli-dev pkg-config
+            libbrotli-dev liblua5.4-dev libcurl4-openssl-dev pkg-config
 
       - name: macOS — install build deps
         if: matrix.target == 'macos-arm64'
         run: |
           brew install --formula apr apr-util pcre2 openssl@3 libxml2 zlib \
-            nghttp2 brotli pkg-config
+            nghttp2 brotli lua curl pkg-config
 
       - name: Build Apache from source (Linux/macOS)
         if: matrix.target != 'windows-x64'
@@ -120,7 +120,16 @@ jobs:
             --enable-proxy-wstunnel --enable-headers --enable-deflate \
             --enable-expires --enable-mime-magic --enable-vhost-alias \
             --enable-cgi --enable-cgid --enable-info --enable-status \
-            --enable-mpm-event \
+            --enable-md --enable-remoteip \
+            --enable-session --enable-session-cookie --enable-session-crypto \
+            --enable-macro --enable-ratelimit --enable-substitute \
+            --enable-unique-id --enable-log-forensic --enable-dumpio \
+            --enable-dav --enable-dav-fs --enable-dav-lock \
+            --enable-cache --enable-cache-disk --enable-cache-socache \
+            --enable-socache-shmcb --enable-socache-memcache --enable-socache-redis \
+            --enable-lua --enable-watchdog --enable-buffer --enable-reqtimeout \
+            --enable-authn-socache --enable-authnz-fcgi \
+            --with-mpm=event \
             --enable-mods-shared=reallyall \
             $HTTP2_FLAGS $BROTLI_FLAGS \
             $APR_FLAGS $SSL_FLAGS $PCRE_FLAGS $EXTRA_FLAGS
