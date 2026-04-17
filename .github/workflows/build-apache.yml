@@ -96,18 +96,23 @@ jobs:
           if [ "${{ matrix.target }}" = "macos-arm64" ]; then
             APR_FLAGS="--with-apr=$(brew --prefix apr) --with-apr-util=$(brew --prefix apr-util)"
             SSL_FLAGS="--with-ssl=$(brew --prefix openssl@3)"
-            PCRE_FLAGS="--with-pcre=$(brew --prefix pcre2)"
+            PCRE_FLAGS="--with-pcre=$(brew --prefix pcre2)/bin/pcre2-config"
+            EXTRA_FLAGS="--with-z=$(brew --prefix zlib) --with-libxml2=$(brew --prefix libxml2)"
           else
-            APR_FLAGS="--with-included-apr"
+            # On Ubuntu the apt libapr1-dev / libaprutil1-dev install to /usr.
+            # --with-included-apr would need apr/apr-util sources unpacked into
+            # ./srclib/ which we'd have to download separately; system pkgs work fine.
+            APR_FLAGS="--with-apr=/usr --with-apr-util=/usr"
             SSL_FLAGS="--with-ssl"
-            PCRE_FLAGS=""
+            PCRE_FLAGS="--with-pcre=/usr/bin/pcre2-config"
+            EXTRA_FLAGS=""
           fi
           ./configure --prefix="$PREFIX" \
             --enable-so --enable-ssl --enable-rewrite --enable-proxy \
             --enable-proxy-fcgi --enable-proxy-http --enable-headers \
             --enable-deflate --enable-expires --enable-mime-magic \
             --enable-vhost-alias --enable-mods-shared=most \
-            $APR_FLAGS $SSL_FLAGS $PCRE_FLAGS
+            $APR_FLAGS $SSL_FLAGS $PCRE_FLAGS $EXTRA_FLAGS
           make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) 2>&1 | tail -10
           make install
           ls "$PREFIX/bin/" "$PREFIX/modules/" | head -10
