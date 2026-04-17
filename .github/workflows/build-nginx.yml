@@ -111,7 +111,7 @@ jobs:
           body: |
             Self-contained Nginx ${{ steps.ver.outputs.version }} binaries for use
             with NKS WebDev Console's `wdc binaries install nginx@${{ steps.ver.outputs.version }}`.
-          fail_on_unmatched_files: false
+          fail_on_unmatched_files: true
           files: |
             nginx-${{ steps.ver.outputs.version }}-*.zip
             nginx-${{ steps.ver.outputs.version }}-*.tar.xz

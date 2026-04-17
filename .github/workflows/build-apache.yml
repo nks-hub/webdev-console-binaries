@@ -165,7 +165,7 @@ jobs:
             Self-contained Apache HTTPD ${{ steps.ver.outputs.version }} binaries for
             NKS WebDev Console's `wdc binaries install apache@${{ steps.ver.outputs.version }}` flow.
             Each archive expands to `bin/httpd`, `modules/*.so` and supporting files.
-          fail_on_unmatched_files: false
+          fail_on_unmatched_files: true
           files: |
             httpd-${{ steps.ver.outputs.version }}-*.zip
             httpd-${{ steps.ver.outputs.version }}-*.tar.xz

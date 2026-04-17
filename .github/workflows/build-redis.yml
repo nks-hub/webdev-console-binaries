@@ -115,7 +115,7 @@ jobs:
           name: Redis ${{ steps.ver.outputs.version }} (cross-platform binaries)
           body: |
             Self-contained Redis ${{ steps.ver.outputs.version }} binaries for use with NKS WebDev Console's `wdc binaries install redis@${{ steps.ver.outputs.version }}` flow. Linux/macOS built from upstream `download.redis.io` source with `BUILD_TLS=yes`. Windows is a mirror of the [tporadowski/redis](https://github.com/tporadowski/redis) community fork.
-          fail_on_unmatched_files: false
+          fail_on_unmatched_files: true
           files: |
             redis-${{ steps.ver.outputs.version }}-*
         env:

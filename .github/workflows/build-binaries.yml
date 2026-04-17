@@ -117,12 +117,11 @@ jobs:
               echo "::warning::PHP $MM Linux/Mac builds disabled (toolchain incompatibility)" ;;
             7.*|8.0)
               # 7.x and 8.0 compile on Linux via docker:ubuntu:20.04 (OpenSSL 1.1.1,
-              # libxml2 2.9). On modern macOS the bundled libxml2 (2.13+) changed
-              # const-correctness for xmlGetLastError() etc., breaking ext/libxml
-              # for 7.x and 8.0.30. Skip mac for both. (Originally only 7.x was
-              # known broken; brew libxml2 has since shipped a newer minor that
-              # also breaks 8.0.30.)
-              if [ "$TGT" = "macos-arm64" ]; then SKIP=true; echo "::warning::PHP $MM macOS skipped (libxml2 2.13+ ABI break)"; fi
+              # libxml2 2.9). On macOS the brew libxml2 2.13+ tightened
+              # const-correctness in xmlError* and breaks PHP 7.x/8.0 ext/libxml.
+              # We now build libxml2 2.9.14 from source first (see "macOS — build
+              # libxml2 2.9" step) and point PHP configure at it via
+              # --with-libxml-dir=PREFIX, so 7.x/8.0 macOS works again.
               LEGACY=true ;;
             *)
               # 8.1+: native build, OpenSSL 3.
@@ -223,10 +222,28 @@ jobs:
       - name: macOS — install build deps (legacy openssl1.1)
         if: matrix.target == 'macos-arm64' && env.legacy_ssl == 'true' && env.skip_source != 'true'
         run: |
-          brew install --formula autoconf bison openssl@1.1 libxml2 sqlite zlib \
+          brew install --formula autoconf bison openssl@1.1 sqlite zlib \
             libzip libpng jpeg-turbo webp curl freetype gmp icu4c readline \
             oniguruma libsodium argon2 bzip2 libiconv libpq tidy-html5 libxpm \
             openldap gettext
+
+      # PHP 7.x/8.0 ext/libxml needs libxml2 2.9 (2.13+ tightened xmlError const).
+      # Build it from source into a workspace prefix, then PHP configure picks
+      # it up via --with-libxml-dir. Modern (8.1+) PHP works fine with brew libxml2 2.13+.
+      - name: macOS — build libxml2 2.9 from source (legacy PHP only)
+        if: matrix.target == 'macos-arm64' && env.legacy_ssl == 'true' && env.skip_source != 'true'
+        shell: bash
+        run: |
+          LIBXML_VER=2.9.14
+          PREFIX="${{ github.workspace }}/libxml2-${LIBXML_VER}"
+          curl -fsSL -o libxml2.tar.xz "https://download.gnome.org/sources/libxml2/2.9/libxml2-${LIBXML_VER}.tar.xz"
+          tar xf libxml2.tar.xz
+          cd libxml2-${LIBXML_VER}
+          ./configure --prefix="$PREFIX" --without-python --without-lzma
+          make -j$(sysctl -n hw.ncpu) 2>&1 | tail -10
+          make install
+          echo "LIBXML_PREFIX=$PREFIX" >> $GITHUB_ENV
+          echo "Built libxml2 ${LIBXML_VER} at $PREFIX"
 
       - name: Compile PHP from source (Linux modern + macOS)
         if: (matrix.target == 'macos-arm64' || (matrix.target == 'linux-x64' && env.legacy_ssl != 'true')) && env.skip_source != 'true'
@@ -276,6 +293,12 @@ jobs:
           GETTEXT_FLAGS="--with-gettext"
           ARGON2_FLAGS="--with-password-argon2"
           SODIUM_FLAGS="--with-sodium"
+          LIBXML_FLAG=""
+          # macOS legacy: use the libxml2 2.9 we just built from source
+          if [ "${{ matrix.target }}" = "macos-arm64" ] && [ "${{ env.legacy_ssl }}" = "true" ] && [ -n "${{ env.LIBXML_PREFIX }}" ]; then
+            LIBXML_FLAG="--with-libxml-dir=${{ env.LIBXML_PREFIX }}"
+            export PKG_CONFIG_PATH="${{ env.LIBXML_PREFIX }}/lib/pkgconfig:$PKG_CONFIG_PATH"
+          fi
           # IMAP was deprecated in 8.4 and dropped in 8.5. Build it for 7.4-8.3
           # so users with legacy mail-handling code keep working. Needs libc-client
           # which is itself deprecated; install via apt/brew where still packaged.
@@ -296,6 +319,7 @@ jobs:
             SODIUM_FLAGS="--with-sodium=$(brew --prefix libsodium)"
           fi
           ./configure --prefix="$PREFIX" \
+            $LIBXML_FLAG \
             --enable-fpm --enable-cli --enable-cgi \
             --enable-opcache \
             --enable-mbstring --enable-bcmath --enable-soap \
@@ -313,12 +337,10 @@ jobs:
           make install
           ls "$PREFIX/bin/" "$PREFIX/sbin/"
 
-      # ── Install PECL extensions: apcu, redis, xdebug, imagick, mongodb,
-      # memcached, swoole, igbinary, yaml, oauth.
-      # Versions selected for compatibility with each PHP minor (per agentic
-      # research against pecl.php.net release matrices, Imagick #709, Xdebug
-      # compat docs, phpredis releases). Some extensions skip newer PHP
-      # because upstream hasn't tagged a compatible release yet.
+      # ── Install PECL extensions via phpize (pecl tool not bundled with PHP 8+).
+      # Download each extension's source from pecl.php.net, run phpize +
+      # configure + make install. Versions per PHP minor are tested for
+      # compatibility (Imagick #709 etc).
       - name: Install PECL extensions (Linux modern + macOS)
         if: (matrix.target == 'macos-arm64' || (matrix.target == 'linux-x64' && env.legacy_ssl != 'true')) && env.skip_source != 'true'
         shell: bash
@@ -329,7 +351,9 @@ jobs:
           export PATH="$PREFIX/bin:$PATH"
           # Build deps for ext native libs
           if [ "${{ matrix.target }}" = "macos-arm64" ]; then
-            brew install --formula imagemagick libmemcached libyaml || true
+            brew install --formula imagemagick libmemcached libyaml pcre2 || true
+            export LDFLAGS="-L$(brew --prefix libmemcached)/lib -L$(brew --prefix libyaml)/lib -L$(brew --prefix imagemagick)/lib $LDFLAGS"
+            export CPPFLAGS="-I$(brew --prefix libmemcached)/include -I$(brew --prefix libyaml)/include -I$(brew --prefix imagemagick)/include $CPPFLAGS"
           else
             sudo apt-get install -y -q libmagickwand-dev libmemcached-dev libyaml-dev
           fi
@@ -342,33 +366,59 @@ jobs:
             8.4)         IMAGICK=3.8.1; XDEBUG=3.5.1; REDIS=6.3.0; MONGODB=2.2.1;  APCU=5.1.28; MEMCACHED=3.4.0; SWOOLE=6.2.0;  IGBINARY=3.2.16; YAML=2.2.5; OAUTH= ;;
             8.5)         IMAGICK=3.8.1; XDEBUG=3.5.1; REDIS=6.3.0; MONGODB=2.2.1;  APCU=5.1.28; MEMCACHED=;      SWOOLE=6.2.0;  IGBINARY=3.2.16; YAML=2.2.5; OAUTH= ;;
           esac
-          # Each pecl install allowed to fail individually so one bad ext doesn't kill the whole step
-          for spec in "apcu-$APCU" "redis-$REDIS" "xdebug-$XDEBUG" "igbinary-$IGBINARY" "yaml-$YAML" "imagick-$IMAGICK" "mongodb-$MONGODB" "swoole-$SWOOLE" "memcached-$MEMCACHED" "oauth-$OAUTH"; do
-            name="${spec%-*}"; ver="${spec##*-}"
-            [ -z "$ver" ] && { echo "SKIP $name (no version for PHP $MM)"; continue; }
-            echo "::group::pecl install $spec"
-            yes '' | "$PREFIX/bin/pecl" install -f "$spec" 2>&1 | tail -10 || echo "::warning::pecl install $spec failed (skipped)"
+          install_pecl_ext() {
+            local name=$1; local ver=$2
+            [ -z "$ver" ] && { echo "SKIP $name (no version for PHP $MM)"; return; }
+            echo "::group::install $name-$ver via phpize"
+            (
+              cd /tmp
+              rm -rf "${name}-${ver}" && mkdir -p "${name}-build" && cd "${name}-build"
+              if curl -fsSL -o ext.tgz "https://pecl.php.net/get/${name}-${ver}.tgz"; then
+                tar xzf ext.tgz
+                cd "${name}-${ver}" 2>/dev/null || cd "${name}"
+                "$PREFIX/bin/phpize"
+                ./configure --with-php-config="$PREFIX/bin/php-config" $3
+                make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) 2>&1 | tail -5
+                make install
+              else
+                echo "Download failed for $name-$ver"; return 1
+              fi
+            ) || echo "::warning::install $name-$ver failed (skipped)"
             echo "::endgroup::"
-          done
+          }
+          install_pecl_ext apcu     "$APCU"     "--enable-apcu"
+          install_pecl_ext redis    "$REDIS"
+          install_pecl_ext xdebug   "$XDEBUG"
+          install_pecl_ext igbinary "$IGBINARY"
+          install_pecl_ext yaml     "$YAML"
+          install_pecl_ext imagick  "$IMAGICK"
+          install_pecl_ext mongodb  "$MONGODB"
+          install_pecl_ext swoole   "$SWOOLE"   "--enable-openssl --enable-mysqlnd --enable-sockets"
+          install_pecl_ext memcached "$MEMCACHED" "--with-libmemcached-dir=$(brew --prefix libmemcached 2>/dev/null || echo /usr)"
+          install_pecl_ext oauth    "$OAUTH"
           # IMAP via PECL for 8.4+ (was removed from core in 8.4)
           case "$MM" in
             8.4|8.5)
               if [ "${{ matrix.target }}" = "linux-x64" ]; then
                 sudo apt-get install -y -q libc-client-dev libkrb5-dev || true
               fi
-              yes '' | "$PREFIX/bin/pecl" install -f imap-1.0.3 2>&1 | tail -10 || echo "::warning::imap PECL skipped" ;;
+              install_pecl_ext imap 1.0.3 ;;
           esac
-          # Wire all built .so into php.ini
+          # Copy default php.ini and wire extensions
           INI="$PREFIX/lib/php.ini"
-          cp "$PREFIX/lib/php.ini-production" "$INI" 2>/dev/null || cp php-${VER}/php.ini-production "$INI" 2>/dev/null || true
-          for so in "$PREFIX"/lib/php/extensions/*/*.so; do
+          cp "$PREFIX/lib/php.ini-production" "$INI" 2>/dev/null || cp php-${VER}/php.ini-production "$INI" 2>/dev/null || touch "$INI"
+          # Find the extensions dir (path varies by PHP version)
+          EXT_DIR=$("$PREFIX/bin/php-config" --extension-dir)
+          echo "extension_dir = $EXT_DIR" >> "$INI"
+          for so in "$EXT_DIR"/*.so; do
+            [ -f "$so" ] || continue
             base=$(basename "$so" .so)
-            # opcache, xdebug = zend_extension; rest = extension
             case "$base" in
               opcache|xdebug) echo "zend_extension=$base" >> "$INI" ;;
               *)              echo "extension=$base" >> "$INI" ;;
             esac
           done
+          echo "===== PHP modules installed ====="
           "$PREFIX/bin/php" -m
 
       - name: Package — Linux/macOS tar.xz
@@ -390,7 +440,7 @@ jobs:
             Self-contained PHP ${{ steps.ver.outputs.version }} binaries for use with
             NKS WebDev Console's `wdc binaries install` flow.
             Each archive expands to `bin/php`, `sbin/php-fpm` and supporting libs.
-          fail_on_unmatched_files: false
+          fail_on_unmatched_files: true
           files: |
             php-${{ steps.ver.outputs.version }}-*.zip
             php-${{ steps.ver.outputs.version }}-*.tar.xz

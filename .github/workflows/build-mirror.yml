@@ -66,14 +66,19 @@ jobs:
               curl -fsSL -o "caddy-${VER}-windows-x64.zip"    "${BASE}/caddy_${VER}_windows_amd64.zip"
               ;;
             cloudflared)
-              # cloudflare/cloudflared — single static binary per platform, no archive
+              # cloudflare/cloudflared. Linux + Windows ship as single static
+              # binaries; macOS is a tarball that contains the binary.
               BASE="https://github.com/cloudflare/cloudflared/releases/download/${VER}"
               curl -fsSL -o "cloudflared-${VER}-linux-x64"       "${BASE}/cloudflared-linux-amd64"
               curl -fsSL -o "cloudflared-${VER}-linux-arm64"     "${BASE}/cloudflared-linux-arm64"
-              curl -fsSL -o "cloudflared-${VER}-macos-x64"       "${BASE}/cloudflared-darwin-amd64.tgz"
-              curl -fsSL -o "cloudflared-${VER}-macos-arm64.tgz" "${BASE}/cloudflared-darwin-amd64.tgz"  # cf doesn't ship arm64 macos directly; user can use brew on M1
+              # Both macOS arches ship as tgz; extract single binary out so
+              # naming matches the daemon's expected ${app}-${ver}-${os}-${arch} pattern.
+              curl -fsSL -o "darwin-amd64.tgz" "${BASE}/cloudflared-darwin-amd64.tgz"
+              tar xzf darwin-amd64.tgz && mv cloudflared "cloudflared-${VER}-macos-x64" && rm darwin-amd64.tgz
+              curl -fsSL -o "darwin-arm64.tgz" "${BASE}/cloudflared-darwin-arm64.tgz" || true
+              [ -f darwin-arm64.tgz ] && tar xzf darwin-arm64.tgz && mv cloudflared "cloudflared-${VER}-macos-arm64" && rm darwin-arm64.tgz
               curl -fsSL -o "cloudflared-${VER}-windows-x64.exe" "${BASE}/cloudflared-windows-amd64.exe"
-              chmod +x cloudflared-${VER}-linux-x64 cloudflared-${VER}-linux-arm64 cloudflared-${VER}-macos-x64 || true
+              chmod +x cloudflared-${VER}-linux-x64 cloudflared-${VER}-linux-arm64 cloudflared-${VER}-macos-x64 cloudflared-${VER}-macos-arm64 2>/dev/null || true
               ;;
             mailpit)
               # axllent/mailpit — tar.gz per platform with bin inside
