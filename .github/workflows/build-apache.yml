@@ -30,10 +30,13 @@ jobs:
         include:
           - os: windows-2022
             target: windows-x64
+            ext: zip
           - os: macos-14
             target: macos-arm64
+            ext: tar.xz
           - os: ubuntu-24.04
             target: linux-x64
+            ext: tar.xz
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -164,8 +167,6 @@ jobs:
             NKS WebDev Console's `wdc binaries install apache@${{ steps.ver.outputs.version }}` flow.
             Each archive expands to `bin/httpd`, `modules/*.so` and supporting files.
           fail_on_unmatched_files: true
-          files: |
-            httpd-${{ steps.ver.outputs.version }}-*.zip
-            httpd-${{ steps.ver.outputs.version }}-*.tar.xz
+          files: httpd-${{ steps.ver.outputs.version }}-${{ matrix.target }}.${{ matrix.ext }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

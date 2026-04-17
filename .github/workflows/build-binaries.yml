@@ -440,9 +440,9 @@ jobs:
             Self-contained PHP ${{ steps.ver.outputs.version }} binaries for use with
             NKS WebDev Console's `wdc binaries install` flow.
             Each archive expands to `bin/php`, `sbin/php-fpm` and supporting libs.
-          fail_on_unmatched_files: true
-          files: |
-            php-${{ steps.ver.outputs.version }}-*.zip
-            php-${{ steps.ver.outputs.version }}-*.tar.xz
+          # skip_source=true → no archive produced for this matrix slot, so
+          # don't insist on matching files (e.g., PHP 5.6 macOS).
+          fail_on_unmatched_files: ${{ env.skip_source != 'true' || matrix.target == 'windows-x64' }}
+          files: php-${{ steps.ver.outputs.version }}-${{ matrix.target }}.${{ matrix.ext }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

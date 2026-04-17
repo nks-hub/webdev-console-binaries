@@ -31,10 +31,13 @@ jobs:
         include:
           - os: ubuntu-24.04
             target: linux-x64
+            ext: tar.xz
           - os: macos-14
             target: macos-arm64
+            ext: tar.xz
           - os: ubuntu-24.04
             target: windows-x64
+            ext: zip
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -116,7 +119,6 @@ jobs:
           body: |
             Self-contained Redis ${{ steps.ver.outputs.version }} binaries for use with NKS WebDev Console's `wdc binaries install redis@${{ steps.ver.outputs.version }}` flow. Linux/macOS built from upstream `download.redis.io` source with `BUILD_TLS=yes`. Windows is a mirror of the [tporadowski/redis](https://github.com/tporadowski/redis) community fork.
           fail_on_unmatched_files: true
-          files: |
-            redis-${{ steps.ver.outputs.version }}-*
+          files: redis-${{ steps.ver.outputs.version }}-${{ matrix.target }}.${{ matrix.ext }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
