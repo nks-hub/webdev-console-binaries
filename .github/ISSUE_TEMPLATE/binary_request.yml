@@ -1,0 +1,45 @@
+name: New binary or version request
+description: Request a new app or upstream version to be packaged here
+title: "[binary] <app>@<version>"
+labels: ["binary-request"]
+body:
+  - type: dropdown
+    id: app
+    attributes:
+      label: App
+      options:
+        - PHP
+        - Apache
+        - Nginx
+        - MariaDB
+        - Caddy
+        - Cloudflared
+        - Mailpit
+        - mkcert
+        - other (mention in description)
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: e.g. 8.4.20, 2.4.66, 1.27.3 — without v-prefix
+      placeholder: 8.4.20
+    validations:
+      required: true
+  - type: checkboxes
+    id: platforms
+    attributes:
+      label: Platforms needed
+      options:
+        - label: Windows x64
+          required: false
+        - label: macOS arm64
+          required: false
+        - label: Linux x64
+          required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Upstream URL, special configure flags, framework needing this version, etc.

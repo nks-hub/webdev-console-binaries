@@ -1,0 +1,116 @@
+name: Build Redis Binaries
+
+# Redis cross-platform binary builder.
+#   Linux + macOS: build from source. Both targets `make` from upstream tarball.
+#   Windows: mirror the Microsoft-archived port from
+#     https://github.com/microsoftarchive/redis (or memurai/redis-windows).
+#     Upstream Redis Labs dropped Windows; the community fork lives on GitHub.
+#
+# Trigger:
+#   git tag binaries-redis-7.4.2 && git push origin binaries-redis-7.4.2
+
+on:
+  push:
+    tags:
+      - 'binaries-redis-*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Redis version, e.g. 7.4.2'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: linux-x64
+          - os: macos-14
+            target: macos-arm64
+          - os: ubuntu-24.04
+            target: windows-x64
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            RAW="${GITHUB_REF_NAME#binaries-redis-}"
+            VERSION="${RAW%-r*}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      # ── Windows: mirror redis-windows community fork ──
+      - name: Windows — download redis-windows fork
+        if: matrix.target == 'windows-x64'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          # tporadowski/redis is the most-active maintained Windows fork (as of 2026)
+          # tags use Redis-X.Y.Z naming.
+          for URL in \
+            "https://github.com/tporadowski/redis/releases/download/v${VER}/Redis-x64-${VER}.zip" \
+            "https://github.com/redis-windows/redis-windows/releases/download/${VER}/Redis-${VER}-Windows-x64-msys2-with-Service.zip"; do
+            if curl -fsIL "$URL" >/dev/null 2>&1; then
+              curl -fsSL -o "redis-${VER}-windows-x64.zip" "$URL"; break
+            fi
+          done
+          ls -lh "redis-${VER}-windows-x64.zip"
+
+      # ── Linux + macOS: build from source ──
+      - name: Linux — install build deps
+        if: matrix.target == 'linux-x64'
+        run: sudo apt-get update -q && sudo apt-get install -y -q build-essential pkg-config
+
+      - name: macOS — install build deps
+        if: matrix.target == 'macos-arm64'
+        run: brew install --formula openssl@3 pkg-config
+
+      - name: Build Redis from source
+        if: matrix.target != 'windows-x64'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          curl -fsSL -o redis-src.tar.gz "https://download.redis.io/releases/redis-${VER}.tar.gz"
+          tar xf redis-src.tar.gz
+          cd redis-${VER}
+          PREFIX="${{ github.workspace }}/install/redis-${VER}"
+          if [ "${{ matrix.target }}" = "macos-arm64" ]; then
+            make BUILD_TLS=yes OPENSSL_PREFIX="$(brew --prefix openssl@3)" -j$(sysctl -n hw.ncpu)
+          else
+            make BUILD_TLS=yes -j$(nproc)
+          fi
+          make PREFIX="$PREFIX" install
+          ls "$PREFIX/bin/" | head -10
+
+      - name: Package — Linux/macOS tar.xz
+        if: matrix.target != 'windows-x64'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          cd "${{ github.workspace }}/install/redis-${VER}"
+          tar -cJf "${{ github.workspace }}/redis-${VER}-${{ matrix.target }}.tar.xz" bin
+          ls -lh "${{ github.workspace }}/redis-${VER}-${{ matrix.target }}.tar.xz"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: binaries-redis-${{ steps.ver.outputs.version }}
+          name: Redis ${{ steps.ver.outputs.version }} (cross-platform binaries)
+          body: |
+            Self-contained Redis ${{ steps.ver.outputs.version }} binaries for use with NKS WebDev Console's `wdc binaries install redis@${{ steps.ver.outputs.version }}` flow. Linux/macOS built from upstream `download.redis.io` source with `BUILD_TLS=yes`. Windows is a mirror of the [tporadowski/redis](https://github.com/tporadowski/redis) community fork.
+          fail_on_unmatched_files: false
+          files: |
+            redis-${{ steps.ver.outputs.version }}-*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

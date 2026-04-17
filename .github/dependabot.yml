@@ -1,0 +1,15 @@
+version: 2
+
+# Keep GitHub Actions versions in workflow files current. Workflows here pin
+# actions/checkout, actions/setup-node, softprops/action-gh-release, etc., and
+# bot-driven minor bumps catch any deprecation/security advisories early.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
