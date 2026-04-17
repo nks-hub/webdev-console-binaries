@@ -162,18 +162,17 @@ jobs:
               libxpm-dev libtidy-dev gettext libc-client-dev libkrb5-dev libmagickwand-dev \
               libmemcached-dev libyaml-dev
             # PHP 7.0/7.1 ext/intl looks for the legacy icu-config script, removed
-            # from ICU 60+. Provide a tiny wrapper that proxies to pkg-config so
-            # configure passes; PHP 7.2+ uses pkg-config directly and is unaffected.
-            cat > /usr/local/bin/icu-config << 'ICUEOF'
-            #!/bin/bash
-            case \"\$1\" in
-              --version) pkg-config --modversion icu-i18n ;;
-              --prefix) echo /usr ;;
-              --cppflags|--cppflags-searchpath) pkg-config --cflags icu-i18n icu-uc ;;
-              --ldflags|--ldflags-libsonly) pkg-config --libs icu-i18n icu-uc ;;
-              *) echo \"\" ;;
-            esac
-ICUEOF
+            # from ICU 60+. Tiny wrapper that proxies to pkg-config so configure
+            # passes; PHP 7.2+ uses pkg-config directly and is unaffected. Written
+            # via printf to avoid heredoc-inside-bash-c-double-quoted-string mess.
+            printf '%s\n' '#!/bin/bash' \
+              'case \"\$1\" in' \
+              '  --version) pkg-config --modversion icu-i18n ;;' \
+              '  --prefix) echo /usr ;;' \
+              '  --cppflags|--cppflags-searchpath) pkg-config --cflags icu-i18n icu-uc ;;' \
+              '  --ldflags|--ldflags-libsonly) pkg-config --libs icu-i18n icu-uc ;;' \
+              '  *) echo \"\" ;;' \
+              'esac' > /usr/local/bin/icu-config
             chmod +x /usr/local/bin/icu-config
             curl -fsSL -o /tmp/php-src.tar.xz https://www.php.net/distributions/php-${VER}.tar.xz
             cd /tmp && tar xf php-src.tar.xz && cd php-${VER}
