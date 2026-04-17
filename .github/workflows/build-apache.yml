@@ -56,17 +56,15 @@ jobs:
         shell: bash
         run: |
           VER="${{ steps.ver.outputs.version }}"
-          # ApacheLounge URL pattern: httpd-2.4.X-2X0XYY-win64-VS17.zip
-          # The trailing build-id suffix changes per release; resolve via listing.
-          URL="https://www.apachelounge.com/download/VS17/binaries/httpd-${VER}-250207-win64-VS17.zip"
-          if ! curl -fsI "$URL" >/dev/null 2>&1; then
-            # Fall back to scraping index for the matching version
-            HTML=$(curl -fsSL "https://www.apachelounge.com/download/VS17/")
-            REL_PATH=$(echo "$HTML" | grep -oE "httpd-${VER}-[0-9]+-win64-VS17\\.zip" | head -1)
-            [ -z "$REL_PATH" ] && { echo "Apache $VER not found on ApacheLounge"; exit 1; }
-            URL="https://www.apachelounge.com/download/VS17/binaries/${REL_PATH}"
-          fi
-          curl -fsSL -o "httpd-${VER}-windows-x64.zip" "$URL"
+          # ApacheLounge filenames embed the build date as a 6-digit suffix
+          # (httpd-2.4.66-250207-win64-VS17.zip). Always scrape the index
+          # rather than guess — the suffix changes per release.
+          HTML=$(curl -fsSL -A "Mozilla/5.0 NKS-WDC/1.0" "https://www.apachelounge.com/download/VS17/")
+          REL_PATH=$(echo "$HTML" | grep -oE "httpd-${VER}-[0-9]+-win64-VS17\\.zip" | head -1)
+          [ -z "$REL_PATH" ] && { echo "Apache $VER not found on ApacheLounge index"; exit 1; }
+          URL="https://www.apachelounge.com/download/VS17/binaries/${REL_PATH}"
+          echo "Resolved ApacheLounge URL: $URL"
+          curl -fsSL -A "Mozilla/5.0 NKS-WDC/1.0" -o "httpd-${VER}-windows-x64.zip" "$URL"
           ls -lh "httpd-${VER}-windows-x64.zip"
 
       # ── Linux: source build with apr/apr-util/pcre2 ──
