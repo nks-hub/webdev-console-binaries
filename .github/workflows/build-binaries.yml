@@ -75,10 +75,13 @@ jobs:
             8.4|8.5) VS=vs17 ;;
             *) VS=vs17 ;;
           esac
-          # Latest minor goes to /releases/, older to /archives/
+          # Latest minor goes to /releases/, older to /archives/. windows.php.net
+          # 302-redirects to downloads.php.net so we MUST use -L on the probe; otherwise
+          # the bare /releases/ URL looks fine (302 = curl exit 0) but the redirect
+          # target 404s and the actual download crashes mid-pipeline.
           for SUBDIR in "" archives/; do
             URL="https://windows.php.net/downloads/releases/${SUBDIR}php-${VER}-nts-Win32-${VS}-x64.zip"
-            if curl -fsI "$URL" >/dev/null 2>&1; then break; fi
+            if curl -fsIL "$URL" >/dev/null 2>&1; then break; fi
             URL=""
           done
           [ -z "$URL" ] && { echo "No Windows ZIP found for $VER"; exit 1; }
@@ -99,11 +102,32 @@ jobs:
         shell: bash
         run: |
           MM="${{ steps.ver.outputs.major_minor }}"
+          TGT="${{ matrix.target }}"
+          # Defaults
+          SKIP=false; LEGACY=false
           case "$MM" in
-            5.*) echo "skip_source=true" >> $GITHUB_ENV; echo "legacy_ssl=true" >> $GITHUB_ENV; echo "::warning::PHP $MM Linux/Mac builds disabled (too many deprecations)" ;;
-            7.*|8.0) echo "skip_source=false" >> $GITHUB_ENV; echo "legacy_ssl=true" >> $GITHUB_ENV ;;
-            *) echo "skip_source=false" >> $GITHUB_ENV; echo "legacy_ssl=false" >> $GITHUB_ENV ;;
+            5.*)
+              # PHP 5 is too old for any modern toolchain on Linux or Mac.
+              SKIP=true; LEGACY=true
+              echo "::warning::PHP $MM Linux/Mac builds disabled" ;;
+            7.*)
+              # 7.x compiles on Linux via docker:ubuntu:20.04 (OpenSSL 1.1.1,
+              # libxml2 2.9). On modern macOS the bundled libxml2 (2.13+)
+              # changed const-correctness for xmlGetLastError() etc., breaking
+              # ext/libxml. We could build libxml2 from source first but it's
+              # not worth the CI time — skip mac for 7.x.
+              if [ "$TGT" = "macos-arm64" ]; then SKIP=true; echo "::warning::PHP 7.x macOS skipped (libxml2 ABI break)"; fi
+              LEGACY=true ;;
+            8.0)
+              # 8.0 still needs OpenSSL 1.1 but libxml2 const issue not
+              # present in 8.0.30 — works on both Linux (docker) and Mac (brew openssl@1.1).
+              LEGACY=true ;;
+            *)
+              # 8.1+: native build, OpenSSL 3.
+              ;;
           esac
+          echo "skip_source=$SKIP" >> $GITHUB_ENV
+          echo "legacy_ssl=$LEGACY" >> $GITHUB_ENV
 
       # Linux modern (8.1+): native build on ubuntu-24.04
       - name: Linux — install build deps (modern openssl3)
