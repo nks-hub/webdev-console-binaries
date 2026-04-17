@@ -157,7 +157,10 @@ jobs:
             apt-get install -y -q build-essential autoconf libxml2-dev libsqlite3-dev \
               libssl-dev libcurl4-openssl-dev libonig-dev libzip-dev libbz2-dev \
               libfreetype-dev libjpeg-dev libpng-dev libwebp-dev libxslt-dev \
-              libgmp-dev libreadline-dev pkg-config curl xz-utils ca-certificates
+              libgmp-dev libreadline-dev pkg-config curl xz-utils ca-certificates \
+              libicu-dev libpq-dev libldap2-dev libargon2-dev libsodium-dev \
+              libxpm-dev libtidy-dev gettext libc-client-dev libkrb5-dev libmagickwand-dev \
+              libmemcached-dev libyaml-dev
             curl -fsSL -o /tmp/php-src.tar.xz https://www.php.net/distributions/php-${VER}.tar.xz
             cd /tmp && tar xf php-src.tar.xz && cd php-${VER}
             ./configure --prefix=/work/install/php-${VER} \

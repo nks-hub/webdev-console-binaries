@@ -85,9 +85,15 @@ jobs:
           tar xf redis-src.tar.gz
           cd redis-${VER}
           PREFIX="${{ github.workspace }}/install/redis-${VER}"
+          # Build deps explicitly first so hiredis_ssl.a is built when BUILD_TLS=yes.
+          # Without this, the top-level make tries to link libhiredis_ssl.a before
+          # the deps subdir's BUILD_TLS=yes has been honored.
           if [ "${{ matrix.target }}" = "macos-arm64" ]; then
-            make BUILD_TLS=yes OPENSSL_PREFIX="$(brew --prefix openssl@3)" -j$(sysctl -n hw.ncpu)
+            export OPENSSL_PREFIX="$(brew --prefix openssl@3)"
+            make -C deps hiredis BUILD_TLS=yes OPENSSL_PREFIX="$OPENSSL_PREFIX" -j$(sysctl -n hw.ncpu)
+            make BUILD_TLS=yes OPENSSL_PREFIX="$OPENSSL_PREFIX" -j$(sysctl -n hw.ncpu)
           else
+            make -C deps hiredis BUILD_TLS=yes -j$(nproc)
             make BUILD_TLS=yes -j$(nproc)
           fi
           make PREFIX="$PREFIX" install

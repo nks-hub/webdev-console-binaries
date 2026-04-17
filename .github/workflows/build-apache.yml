@@ -76,13 +76,13 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q build-essential libapr1-dev libaprutil1-dev \
             libpcre2-dev libssl-dev libxml2-dev zlib1g-dev libnghttp2-dev \
-            libbrotli-dev liblua5.4-dev libcurl4-openssl-dev pkg-config
+            libbrotli-dev liblua5.4-dev libcurl4-openssl-dev libjansson-dev pkg-config
 
       - name: macOS — install build deps
         if: matrix.target == 'macos-arm64'
         run: |
           brew install --formula apr apr-util pcre2 openssl@3 libxml2 zlib \
-            nghttp2 brotli lua curl pkg-config
+            nghttp2 brotli lua curl jansson pkg-config
 
       - name: Build Apache from source (Linux/macOS)
         if: matrix.target != 'windows-x64'
