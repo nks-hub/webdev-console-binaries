@@ -1,0 +1,28 @@
+# Build output (workflows produce tarballs/zips that get uploaded as release
+# assets, never committed to git).
+*.tar.xz
+*.tar.gz
+*.zip
+*.dmg
+*.exe
+install/
+build/
+dist/
+
+# OS / editor cruft
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Secrets — none should ever land here, but belt and suspenders.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa
+id_ed25519
+secrets/
