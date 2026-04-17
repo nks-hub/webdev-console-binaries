@@ -1,0 +1,139 @@
+name: Build Apache HTTPD Binaries
+
+# Apache HTTP Server cross-platform binary builder.
+#   Windows: ApacheLounge precompiled VS17 (matches what the daemon's Plugin.Apache expects)
+#   Linux x64: build from source on ubuntu-24.04 with apr/apr-util/pcre2
+#   macOS arm64: build from source on macos-14 with Homebrew apr/apr-util/pcre2
+#
+# Trigger:
+#   git tag binaries-apache-2.4.66 && git push origin binaries-apache-2.4.66
+
+on:
+  push:
+    tags:
+      - 'binaries-apache-*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Apache version, e.g. 2.4.66'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            target: windows-x64
+          - os: macos-14
+            target: macos-arm64
+          - os: ubuntu-24.04
+            target: linux-x64
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            RAW="${GITHUB_REF_NAME#binaries-apache-}"
+            VERSION="${RAW%-r*}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building Apache $VERSION for ${{ matrix.target }}"
+
+      # ── Windows: ApacheLounge precompiled ──
+      - name: Windows — download ApacheLounge build
+        if: matrix.target == 'windows-x64'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          # ApacheLounge URL pattern: httpd-2.4.X-2X0XYY-win64-VS17.zip
+          # The trailing build-id suffix changes per release; resolve via listing.
+          URL="https://www.apachelounge.com/download/VS17/binaries/httpd-${VER}-250207-win64-VS17.zip"
+          if ! curl -fsI "$URL" >/dev/null 2>&1; then
+            # Fall back to scraping index for the matching version
+            HTML=$(curl -fsSL "https://www.apachelounge.com/download/VS17/")
+            REL_PATH=$(echo "$HTML" | grep -oE "httpd-${VER}-[0-9]+-win64-VS17\\.zip" | head -1)
+            [ -z "$REL_PATH" ] && { echo "Apache $VER not found on ApacheLounge"; exit 1; }
+            URL="https://www.apachelounge.com/download/VS17/binaries/${REL_PATH}"
+          fi
+          curl -fsSL -o "httpd-${VER}-windows-x64.zip" "$URL"
+          ls -lh "httpd-${VER}-windows-x64.zip"
+
+      # ── Linux: source build with apr/apr-util/pcre2 ──
+      - name: Linux — install build deps
+        if: matrix.target == 'linux-x64'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q build-essential libapr1-dev libaprutil1-dev \
+            libpcre2-dev libssl-dev libxml2-dev zlib1g-dev libnghttp2-dev \
+            libbrotli-dev pkg-config
+
+      - name: macOS — install build deps
+        if: matrix.target == 'macos-arm64'
+        run: |
+          brew install --formula apr apr-util pcre2 openssl@3 libxml2 zlib \
+            nghttp2 brotli pkg-config
+
+      - name: Build Apache from source (Linux/macOS)
+        if: matrix.target != 'windows-x64'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          curl -fsSL -o httpd-src.tar.gz "https://archive.apache.org/dist/httpd/httpd-${VER}.tar.gz"
+          tar xf httpd-src.tar.gz
+          cd httpd-${VER}
+          PREFIX="${{ github.workspace }}/install/httpd-${VER}"
+          if [ "${{ matrix.target }}" = "macos-arm64" ]; then
+            APR_FLAGS="--with-apr=$(brew --prefix apr) --with-apr-util=$(brew --prefix apr-util)"
+            SSL_FLAGS="--with-ssl=$(brew --prefix openssl@3)"
+            PCRE_FLAGS="--with-pcre=$(brew --prefix pcre2)"
+          else
+            APR_FLAGS="--with-included-apr"
+            SSL_FLAGS="--with-ssl"
+            PCRE_FLAGS=""
+          fi
+          ./configure --prefix="$PREFIX" \
+            --enable-so --enable-ssl --enable-rewrite --enable-proxy \
+            --enable-proxy-fcgi --enable-proxy-http --enable-headers \
+            --enable-deflate --enable-expires --enable-mime-magic \
+            --enable-vhost-alias --enable-mods-shared=most \
+            $APR_FLAGS $SSL_FLAGS $PCRE_FLAGS
+          make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) 2>&1 | tail -10
+          make install
+          ls "$PREFIX/bin/" "$PREFIX/modules/" | head -10
+
+      - name: Package — Linux/macOS tar.xz
+        if: matrix.target != 'windows-x64'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          cd "${{ github.workspace }}/install/httpd-${VER}"
+          tar -cJf "${{ github.workspace }}/httpd-${VER}-${{ matrix.target }}.tar.xz" \
+            bin sbin lib include modules conf
+          ls -lh "${{ github.workspace }}/httpd-${VER}-${{ matrix.target }}.tar.xz"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: binaries-apache-${{ steps.ver.outputs.version }}
+          name: Apache HTTPD ${{ steps.ver.outputs.version }} (cross-platform binaries)
+          body: |
+            Self-contained Apache HTTPD ${{ steps.ver.outputs.version }} binaries for
+            NKS WebDev Console's `wdc binaries install apache@${{ steps.ver.outputs.version }}` flow.
+            Each archive expands to `bin/httpd`, `modules/*.so` and supporting files.
+          fail_on_unmatched_files: false
+          files: |
+            httpd-${{ steps.ver.outputs.version }}-*.zip
+            httpd-${{ steps.ver.outputs.version }}-*.tar.xz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

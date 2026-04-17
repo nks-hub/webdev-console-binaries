@@ -1,0 +1,75 @@
+name: Build MariaDB Binaries
+
+# MariaDB cross-platform binary distribution.
+#   Windows + Linux + macOS: mirror upstream mariadb.org's prebuilt tarballs.
+#   Building MariaDB from source on a CI runner takes 30+ min and consumes
+#   tons of CPU; mariadb.org publishes per-platform binaries with the right
+#   compile flags already.
+#
+# Trigger:
+#   git tag binaries-mariadb-11.4.4 && git push origin binaries-mariadb-11.4.4
+
+on:
+  push:
+    tags:
+      - 'binaries-mariadb-*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'MariaDB version, e.g. 11.4.4'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            RAW="${GITHUB_REF_NAME#binaries-mariadb-}"
+            VERSION="${RAW%-r*}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Download upstream binaries
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          BASE="https://archive.mariadb.org/mariadb-${VER}/bintar"
+          # mariadb.org publishes Linux glibc and macOS arm64; Windows is MSI
+          # at https://archive.mariadb.org/mariadb-${VER}/winx64-packages/
+          curl -fsSL -o "mariadb-${VER}-linux-x64.tar.gz" \
+            "${BASE}-linux-systemd-x86_64/mariadb-${VER}-linux-systemd-x86_64.tar.gz" || \
+          curl -fsSL -o "mariadb-${VER}-linux-x64.tar.gz" \
+            "${BASE}-linux-x86_64/mariadb-${VER}-linux-x86_64.tar.gz"
+
+          # macOS arm64
+          curl -fsSL -o "mariadb-${VER}-macos-arm64.tar.gz" \
+            "https://archive.mariadb.org/mariadb-${VER}/bintar-osx_arm64/mariadb-${VER}-osx_arm64.tar.gz" || true
+
+          # Windows x64 MSI
+          curl -fsSL -o "mariadb-${VER}-windows-x64.msi" \
+            "https://archive.mariadb.org/mariadb-${VER}/winx64-packages/mariadb-${VER}-winx64.msi" || true
+
+          ls -lh mariadb-${VER}-* 2>/dev/null || echo "No artifacts downloaded"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: binaries-mariadb-${{ steps.ver.outputs.version }}
+          name: MariaDB ${{ steps.ver.outputs.version }} (cross-platform binaries)
+          body: |
+            Mirror of [MariaDB ${{ steps.ver.outputs.version }}](https://mariadb.org/download/?t=mariadb&p=mariadb&r=${{ steps.ver.outputs.version }}) for use with NKS WebDev Console's `wdc binaries install mariadb@${{ steps.ver.outputs.version }}` flow.
+          fail_on_unmatched_files: false
+          files: |
+            mariadb-${{ steps.ver.outputs.version }}-*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

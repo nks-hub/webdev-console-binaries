@@ -1,0 +1,119 @@
+name: Build Nginx Binaries
+
+# Nginx cross-platform binary builder.
+#   Windows: nginx.org precompiled (only stable ZIP, no MSI)
+#   Linux x64 + macOS arm64: build from source
+#
+# Trigger:
+#   git tag binaries-nginx-1.27.3 && git push origin binaries-nginx-1.27.3
+
+on:
+  push:
+    tags:
+      - 'binaries-nginx-*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Nginx version, e.g. 1.27.3'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            target: windows-x64
+          - os: macos-14
+            target: macos-arm64
+          - os: ubuntu-24.04
+            target: linux-x64
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            RAW="${GITHUB_REF_NAME#binaries-nginx-}"
+            VERSION="${RAW%-r*}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      # ── Windows: nginx.org official ZIP ──
+      - name: Windows — download nginx.org build
+        if: matrix.target == 'windows-x64'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          URL="https://nginx.org/download/nginx-${VER}.zip"
+          curl -fsSL -o "nginx-${VER}-windows-x64.zip" "$URL"
+          ls -lh "nginx-${VER}-windows-x64.zip"
+
+      # ── Linux/macOS: source build ──
+      - name: Linux — install build deps
+        if: matrix.target == 'linux-x64'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q build-essential libpcre2-dev libssl-dev \
+            zlib1g-dev pkg-config
+
+      - name: macOS — install build deps
+        if: matrix.target == 'macos-arm64'
+        run: |
+          brew install --formula pcre2 openssl@3 zlib pkg-config
+
+      - name: Build nginx from source (Linux/macOS)
+        if: matrix.target != 'windows-x64'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          curl -fsSL -o nginx-src.tar.gz "https://nginx.org/download/nginx-${VER}.tar.gz"
+          tar xf nginx-src.tar.gz
+          cd nginx-${VER}
+          PREFIX="${{ github.workspace }}/install/nginx-${VER}"
+          if [ "${{ matrix.target }}" = "macos-arm64" ]; then
+            export CFLAGS="-I$(brew --prefix openssl@3)/include -I$(brew --prefix pcre2)/include"
+            export LDFLAGS="-L$(brew --prefix openssl@3)/lib -L$(brew --prefix pcre2)/lib"
+          fi
+          ./configure --prefix="$PREFIX" \
+            --with-http_ssl_module --with-http_v2_module --with-http_v3_module \
+            --with-http_realip_module --with-http_gzip_static_module \
+            --with-http_stub_status_module --with-stream --with-stream_ssl_module \
+            --with-pcre --with-pcre-jit
+          make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) 2>&1 | tail -10
+          make install
+          ls "$PREFIX/sbin/" "$PREFIX/conf/" | head -10
+
+      - name: Package — Linux/macOS tar.xz
+        if: matrix.target != 'windows-x64'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          cd "${{ github.workspace }}/install/nginx-${VER}"
+          tar -cJf "${{ github.workspace }}/nginx-${VER}-${{ matrix.target }}.tar.xz" \
+            sbin conf html
+          ls -lh "${{ github.workspace }}/nginx-${VER}-${{ matrix.target }}.tar.xz"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: binaries-nginx-${{ steps.ver.outputs.version }}
+          name: Nginx ${{ steps.ver.outputs.version }} (cross-platform binaries)
+          body: |
+            Self-contained Nginx ${{ steps.ver.outputs.version }} binaries for use
+            with NKS WebDev Console's `wdc binaries install nginx@${{ steps.ver.outputs.version }}`.
+          fail_on_unmatched_files: false
+          files: |
+            nginx-${{ steps.ver.outputs.version }}-*.zip
+            nginx-${{ steps.ver.outputs.version }}-*.tar.xz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
