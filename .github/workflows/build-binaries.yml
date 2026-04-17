@@ -137,7 +137,9 @@ jobs:
           sudo apt-get install -y -q build-essential autoconf libxml2-dev \
             libsqlite3-dev libssl-dev libcurl4-openssl-dev libonig-dev \
             libzip-dev libbz2-dev libfreetype-dev libjpeg-dev libpng-dev \
-            libwebp-dev libxslt-dev libgmp-dev libreadline-dev pkg-config
+            libwebp-dev libxslt-dev libgmp-dev libreadline-dev pkg-config \
+            libpq-dev libldap2-dev libargon2-dev libsodium-dev libxpm-dev \
+            libavif-dev libtidy-dev libicu-dev
 
       # Linux legacy (7.x, 8.0): docker container with ubuntu:20.04 → OpenSSL 1.1.1
       - name: Linux — build legacy PHP in docker (ubuntu:20.04, openssl 1.1)
@@ -188,7 +190,8 @@ jobs:
           # silently leaves later formulae uninstalled, breaking configure.
           brew install --formula autoconf bison openssl@3 libxml2 sqlite zlib \
             libzip libpng jpeg-turbo webp curl freetype gmp icu4c readline \
-            oniguruma libsodium argon2 bzip2 libiconv
+            oniguruma libsodium argon2 bzip2 libiconv libpq tidy-html5 libxpm \
+            openldap gettext
 
       # macOS legacy (7.x, 8.0): brew openssl@1.1 (deprecated but still installable)
       - name: macOS — install build deps (legacy openssl1.1)
@@ -196,7 +199,8 @@ jobs:
         run: |
           brew install --formula autoconf bison openssl@1.1 libxml2 sqlite zlib \
             libzip libpng jpeg-turbo webp curl freetype gmp icu4c readline \
-            oniguruma libsodium argon2 bzip2 libiconv
+            oniguruma libsodium argon2 bzip2 libiconv libpq tidy-html5 libxpm \
+            openldap gettext
 
       - name: Compile PHP from source (Linux modern + macOS)
         if: (matrix.target == 'macos-arm64' || (matrix.target == 'linux-x64' && env.legacy_ssl != 'true')) && env.skip_source != 'true'
@@ -229,12 +233,52 @@ jobs:
             export LDFLAGS="-L$(brew --prefix gmp)/lib -L$(brew --prefix libiconv)/lib -L$(brew --prefix readline)/lib $LDFLAGS"
             export CPPFLAGS="-I$(brew --prefix gmp)/include -I$(brew --prefix libiconv)/include -I$(brew --prefix readline)/include $CPPFLAGS"
           fi
+          # ── Comprehensive PHP build covering common framework + CMS workloads.
+          # SAPIs: cli (default), fpm (php-fpm), cgi (rare but small).
+          # Core perf: opcache (JIT in 8+; major perf win), pcntl, sockets, sysv*.
+          # Image processing: gd with jpeg/webp/freetype/avif (Drupal/WP/Laravel-Spatie).
+          # Database: mysqli/pdo_mysql, pdo_sqlite/sqlite3, pdo_pgsql/pgsql.
+          # Net: curl, openssl, soap, ftp, ldap (skip on legacy mac).
+          # Text: mbstring, intl, iconv, xsl, tidy.
+          # Crypto/math: bcmath, gmp, sodium, hash (default).
+          # Containers: zip, bz2, zlib.
+          # Default-on but explicit for visibility: opcache flag changed location across versions.
+          GD_FLAGS="--enable-gd --with-jpeg --with-webp --with-freetype --with-xpm"
+          PG_FLAGS="--with-pgsql --with-pdo-pgsql"
+          TIDY_FLAGS="--with-tidy"
+          LDAP_FLAGS="--with-ldap"
+          GETTEXT_FLAGS="--with-gettext"
+          # IMAP was deprecated in 8.4 and dropped in 8.5. Build it for 7.4-8.3
+          # so users with legacy mail-handling code keep working. Needs libc-client
+          # which is itself deprecated; install via apt/brew where still packaged.
+          IMAP_FLAGS=""
+          MM="${{ steps.ver.outputs.major_minor }}"
+          case "$MM" in
+            7.*|8.0|8.1|8.2|8.3) IMAP_FLAGS="--with-imap --with-imap-ssl --with-kerberos" ;;
+          esac
+          if [ "${{ matrix.target }}" = "macos-arm64" ]; then
+            # All keg-only formulae need explicit prefix; PHP gd-related flags
+            # accept =PREFIX form per-library.
+            GD_FLAGS="--enable-gd --with-jpeg=$(brew --prefix jpeg-turbo) --with-webp=$(brew --prefix webp) --with-freetype=$(brew --prefix freetype) --with-xpm=$(brew --prefix libxpm)"
+            PG_FLAGS="--with-pgsql=$(brew --prefix libpq) --with-pdo-pgsql=$(brew --prefix libpq)"
+            TIDY_FLAGS="--with-tidy=$(brew --prefix tidy-html5)"
+            LDAP_FLAGS="--with-ldap=$(brew --prefix openldap)"
+            GETTEXT_FLAGS="--with-gettext=$(brew --prefix gettext)"
+          fi
           ./configure --prefix="$PREFIX" \
-            --enable-fpm --enable-mbstring --enable-bcmath --enable-soap \
+            --enable-fpm --enable-cli --enable-cgi \
+            --enable-opcache \
+            --enable-mbstring --enable-bcmath --enable-soap \
             --enable-intl --enable-pcntl --enable-sockets --enable-exif \
+            --enable-ftp --enable-shmop --enable-sysvmsg --enable-sysvsem --enable-sysvshm \
+            --enable-calendar --enable-dba \
             --with-openssl --with-curl --with-zip --with-zlib $BZ2_FLAG \
             --with-mysqli --with-pdo-mysql --with-pdo-sqlite --with-sqlite3 \
-            $READLINE_FLAG --with-xsl $GMP_FLAG $ICONV_FLAG
+            $PG_FLAGS \
+            --with-password-argon2 --with-sodium \
+            $READLINE_FLAG --with-xsl $TIDY_FLAGS $LDAP_FLAGS $GETTEXT_FLAGS \
+            $GD_FLAGS \
+            $GMP_FLAG $ICONV_FLAG
           make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) 2>&1 | tail -20
           make install
           ls "$PREFIX/bin/" "$PREFIX/sbin/"

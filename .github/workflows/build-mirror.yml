@@ -1,0 +1,101 @@
+name: Mirror Upstream Binaries (caddy, cloudflared, mailpit)
+
+# Mirror cross-platform binaries from upstream GitHub releases under our
+# naming convention so the catalog API can point at stable URLs and we
+# control the lifetime of each release. Same pattern as build-mkcert.yml.
+#
+# Trigger:
+#   git tag binaries-caddy-2.10.2 && git push origin binaries-caddy-2.10.2
+#   git tag binaries-cloudflared-2026.3.0 && git push origin ...
+#   git tag binaries-mailpit-1.29.6 && git push origin ...
+
+on:
+  push:
+    tags:
+      - 'binaries-caddy-*'
+      - 'binaries-cloudflared-*'
+      - 'binaries-mailpit-*'
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 'caddy / cloudflared / mailpit'
+        required: true
+        type: choice
+        options: [caddy, cloudflared, mailpit]
+      version:
+        description: 'Upstream version (no v prefix)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Resolve app + version
+        id: ver
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            APP="${{ github.event.inputs.app }}"
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            REF="${GITHUB_REF_NAME}"  # e.g. binaries-caddy-2.10.2
+            APP="${REF#binaries-}"
+            APP="${APP%%-*}"          # caddy
+            RAW="${REF#binaries-${APP}-}"
+            VERSION="${RAW%-r*}"
+          fi
+          echo "app=$APP" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Mirroring $APP $VERSION"
+
+      - name: Download per-app upstream artifacts
+        shell: bash
+        run: |
+          APP="${{ steps.ver.outputs.app }}"
+          VER="${{ steps.ver.outputs.version }}"
+          case "$APP" in
+            caddy)
+              # caddyserver/caddy releases — tar.gz for unix, zip for windows
+              BASE="https://github.com/caddyserver/caddy/releases/download/v${VER}"
+              curl -fsSL -o "caddy-${VER}-linux-x64.tar.gz"   "${BASE}/caddy_${VER}_linux_amd64.tar.gz"
+              curl -fsSL -o "caddy-${VER}-macos-arm64.tar.gz" "${BASE}/caddy_${VER}_mac_arm64.tar.gz"
+              curl -fsSL -o "caddy-${VER}-windows-x64.zip"    "${BASE}/caddy_${VER}_windows_amd64.zip"
+              ;;
+            cloudflared)
+              # cloudflare/cloudflared — single static binary per platform, no archive
+              BASE="https://github.com/cloudflare/cloudflared/releases/download/${VER}"
+              curl -fsSL -o "cloudflared-${VER}-linux-x64"       "${BASE}/cloudflared-linux-amd64"
+              curl -fsSL -o "cloudflared-${VER}-linux-arm64"     "${BASE}/cloudflared-linux-arm64"
+              curl -fsSL -o "cloudflared-${VER}-macos-x64"       "${BASE}/cloudflared-darwin-amd64.tgz"
+              curl -fsSL -o "cloudflared-${VER}-macos-arm64.tgz" "${BASE}/cloudflared-darwin-amd64.tgz"  # cf doesn't ship arm64 macos directly; user can use brew on M1
+              curl -fsSL -o "cloudflared-${VER}-windows-x64.exe" "${BASE}/cloudflared-windows-amd64.exe"
+              chmod +x cloudflared-${VER}-linux-x64 cloudflared-${VER}-linux-arm64 cloudflared-${VER}-macos-x64 || true
+              ;;
+            mailpit)
+              # axllent/mailpit — tar.gz per platform with bin inside
+              BASE="https://github.com/axllent/mailpit/releases/download/v${VER}"
+              curl -fsSL -o "mailpit-${VER}-linux-x64.tar.gz"   "${BASE}/mailpit-linux-amd64.tar.gz"
+              curl -fsSL -o "mailpit-${VER}-macos-arm64.tar.gz" "${BASE}/mailpit-darwin-arm64.tar.gz"
+              curl -fsSL -o "mailpit-${VER}-windows-x64.zip"    "${BASE}/mailpit-windows-amd64.zip"
+              ;;
+            *)
+              echo "Unknown app: $APP"; exit 1 ;;
+          esac
+          ls -lh ${APP}-${VER}-* 2>/dev/null
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: binaries-${{ steps.ver.outputs.app }}-${{ steps.ver.outputs.version }}
+          name: ${{ steps.ver.outputs.app }} ${{ steps.ver.outputs.version }} (cross-platform binaries)
+          body: |
+            Mirror of upstream **${{ steps.ver.outputs.app }} ${{ steps.ver.outputs.version }}** for use with NKS WebDev Console's `wdc binaries install` flow. File naming follows the catalog's `${app}-${version}-${os}-${arch}` convention so the daemon's `BinaryDownloader` can resolve URLs without per-app special cases.
+          fail_on_unmatched_files: false
+          files: |
+            ${{ steps.ver.outputs.app }}-${{ steps.ver.outputs.version }}-*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

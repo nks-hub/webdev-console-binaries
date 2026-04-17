@@ -107,11 +107,22 @@ jobs:
             PCRE_FLAGS="--with-pcre=/usr/bin/pcre2-config"
             EXTRA_FLAGS=""
           fi
+          if [ "${{ matrix.target }}" = "macos-arm64" ]; then
+            HTTP2_FLAGS="--enable-http2 --with-nghttp2=$(brew --prefix nghttp2)"
+            BROTLI_FLAGS="--enable-brotli --with-brotli=$(brew --prefix brotli)"
+          else
+            HTTP2_FLAGS="--enable-http2"
+            BROTLI_FLAGS="--enable-brotli"
+          fi
           ./configure --prefix="$PREFIX" \
             --enable-so --enable-ssl --enable-rewrite --enable-proxy \
-            --enable-proxy-fcgi --enable-proxy-http --enable-headers \
-            --enable-deflate --enable-expires --enable-mime-magic \
-            --enable-vhost-alias --enable-mods-shared=most \
+            --enable-proxy-fcgi --enable-proxy-http --enable-proxy-balancer \
+            --enable-proxy-wstunnel --enable-headers --enable-deflate \
+            --enable-expires --enable-mime-magic --enable-vhost-alias \
+            --enable-cgi --enable-cgid --enable-info --enable-status \
+            --enable-mpm-event \
+            --enable-mods-shared=reallyall \
+            $HTTP2_FLAGS $BROTLI_FLAGS \
             $APR_FLAGS $SSL_FLAGS $PCRE_FLAGS $EXTRA_FLAGS
           make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) 2>&1 | tail -10
           make install
