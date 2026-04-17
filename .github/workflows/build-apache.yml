@@ -129,7 +129,6 @@ jobs:
             --enable-socache-shmcb --enable-socache-memcache --enable-socache-redis \
             --enable-lua --enable-watchdog --enable-buffer --enable-reqtimeout \
             --enable-authn-socache --enable-authnz-fcgi \
-            --with-mpm=event \
             --enable-mods-shared=reallyall \
             $HTTP2_FLAGS $BROTLI_FLAGS \
             $APR_FLAGS $SSL_FLAGS $PCRE_FLAGS $EXTRA_FLAGS

@@ -66,11 +66,12 @@ jobs:
         run: |
           VER="${{ steps.ver.outputs.version }}"
           MM="${{ steps.ver.outputs.major_minor }}"
-          # VS prefix matrix
+          # VS prefix matrix. Filenames on windows.php.net are case-sensitive
+          # since the migration to myracloud — always lowercase.
           case "$MM" in
-            5.6) VS=VC11 ;;
-            7.0|7.1) VS=VC14 ;;
-            7.2|7.3|7.4) VS=VC15 ;;
+            5.6) VS=vc11 ;;
+            7.0|7.1) VS=vc14 ;;
+            7.2|7.3|7.4) VS=vc15 ;;
             8.0|8.1|8.2|8.3) VS=vs16 ;;
             8.4|8.5) VS=vs17 ;;
             *) VS=vs17 ;;
@@ -248,6 +249,8 @@ jobs:
           TIDY_FLAGS="--with-tidy"
           LDAP_FLAGS="--with-ldap"
           GETTEXT_FLAGS="--with-gettext"
+          ARGON2_FLAGS="--with-password-argon2"
+          SODIUM_FLAGS="--with-sodium"
           # IMAP was deprecated in 8.4 and dropped in 8.5. Build it for 7.4-8.3
           # so users with legacy mail-handling code keep working. Needs libc-client
           # which is itself deprecated; install via apt/brew where still packaged.
@@ -264,6 +267,8 @@ jobs:
             TIDY_FLAGS="--with-tidy=$(brew --prefix tidy-html5)"
             LDAP_FLAGS="--with-ldap=$(brew --prefix openldap)"
             GETTEXT_FLAGS="--with-gettext=$(brew --prefix gettext)"
+            ARGON2_FLAGS="--with-password-argon2=$(brew --prefix argon2)"
+            SODIUM_FLAGS="--with-sodium=$(brew --prefix libsodium)"
           fi
           ./configure --prefix="$PREFIX" \
             --enable-fpm --enable-cli --enable-cgi \
@@ -275,7 +280,7 @@ jobs:
             --with-openssl --with-curl --with-zip --with-zlib $BZ2_FLAG \
             --with-mysqli --with-pdo-mysql --with-pdo-sqlite --with-sqlite3 \
             $PG_FLAGS \
-            --with-password-argon2 --with-sodium \
+            $ARGON2_FLAGS $SODIUM_FLAGS \
             $READLINE_FLAG --with-xsl $TIDY_FLAGS $LDAP_FLAGS $GETTEXT_FLAGS \
             $GD_FLAGS \
             $GMP_FLAG $ICONV_FLAG
