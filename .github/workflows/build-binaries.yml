@@ -186,28 +186,31 @@ jobs:
           BZ2_FLAG="--with-bz2"
           GMP_FLAG="--with-gmp"
           ICONV_FLAG="--with-iconv"
+          READLINE_FLAG="--with-readline"
           if [ "${{ matrix.target }}" = "macos-arm64" ]; then
             # Most brew formulae are keg-only on macOS, so PHP configure can't
             # find them via standard search paths. Pass explicit prefixes for
-            # the libraries that PHP wires through to lib/include.
+            # every library PHP wires through to lib/include — bzip2, gmp,
+            # libiconv, readline are all keg-only.
             BZ2_FLAG="--with-bz2=$(brew --prefix bzip2)"
             GMP_FLAG="--with-gmp=$(brew --prefix gmp)"
             ICONV_FLAG="--with-iconv=$(brew --prefix libiconv)"
+            READLINE_FLAG="--with-readline=$(brew --prefix readline)"
             if [ "${{ env.legacy_ssl }}" = "true" ]; then
               SSL_PREFIX="$(brew --prefix openssl@1.1)"
             else
               SSL_PREFIX="$(brew --prefix openssl@3)"
             fi
-            export PKG_CONFIG_PATH="$SSL_PREFIX/lib/pkgconfig:$(brew --prefix icu4c)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix gmp)/lib/pkgconfig:$(brew --prefix libiconv)/lib/pkgconfig:$PKG_CONFIG_PATH"
-            export LDFLAGS="-L$(brew --prefix gmp)/lib -L$(brew --prefix libiconv)/lib $LDFLAGS"
-            export CPPFLAGS="-I$(brew --prefix gmp)/include -I$(brew --prefix libiconv)/include $CPPFLAGS"
+            export PKG_CONFIG_PATH="$SSL_PREFIX/lib/pkgconfig:$(brew --prefix icu4c)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix gmp)/lib/pkgconfig:$(brew --prefix libiconv)/lib/pkgconfig:$(brew --prefix readline)/lib/pkgconfig:$PKG_CONFIG_PATH"
+            export LDFLAGS="-L$(brew --prefix gmp)/lib -L$(brew --prefix libiconv)/lib -L$(brew --prefix readline)/lib $LDFLAGS"
+            export CPPFLAGS="-I$(brew --prefix gmp)/include -I$(brew --prefix libiconv)/include -I$(brew --prefix readline)/include $CPPFLAGS"
           fi
           ./configure --prefix="$PREFIX" \
             --enable-fpm --enable-mbstring --enable-bcmath --enable-soap \
             --enable-intl --enable-pcntl --enable-sockets --enable-exif \
             --with-openssl --with-curl --with-zip --with-zlib $BZ2_FLAG \
             --with-mysqli --with-pdo-mysql --with-pdo-sqlite --with-sqlite3 \
-            --with-readline --with-xsl $GMP_FLAG $ICONV_FLAG
+            $READLINE_FLAG --with-xsl $GMP_FLAG $ICONV_FLAG
           make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) 2>&1 | tail -20
           make install
           ls "$PREFIX/bin/" "$PREFIX/sbin/"

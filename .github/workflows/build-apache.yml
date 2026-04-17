@@ -123,8 +123,13 @@ jobs:
         run: |
           VER="${{ steps.ver.outputs.version }}"
           cd "${{ github.workspace }}/install/httpd-${VER}"
+          # Apache install layout doesn't include sbin or lib by default — bin/ holds
+          # both httpd and helper tools, modules/ holds the .so MPM/extensions, conf/
+          # holds httpd.conf + extra/. Skip sbin/lib since they're empty/missing.
+          ls -d */ 2>&1 | head
           tar -cJf "${{ github.workspace }}/httpd-${VER}-${{ matrix.target }}.tar.xz" \
-            bin sbin lib include modules conf
+            bin include modules conf $(ls -d build error htdocs icons logs man manual cgi-bin 2>/dev/null) \
+            $(test -d sbin && echo sbin) $(test -d lib && echo lib)
           ls -lh "${{ github.workspace }}/httpd-${VER}-${{ matrix.target }}.tar.xz"
 
       - name: Upload to release
