@@ -1,0 +1,62 @@
+name: Build mkcert Binaries
+
+# mkcert ships precompiled cross-platform binaries from FiloSottile/mkcert
+# releases. We just mirror them under our own release naming so the catalog
+# API can point at stable URLs that match the daemon's per-OS+arch lookup.
+#
+# Trigger:
+#   git tag binaries-mkcert-1.4.4 && git push origin binaries-mkcert-1.4.4
+
+on:
+  push:
+    tags:
+      - 'binaries-mkcert-*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'mkcert version, e.g. 1.4.4'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            RAW="${GITHUB_REF_NAME#binaries-mkcert-}"
+            VERSION="${RAW%-r*}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Download upstream binaries (Linux x64, macOS arm64, Windows x64)
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          BASE="https://github.com/FiloSottile/mkcert/releases/download/v${VER}"
+          curl -fsSL -o "mkcert-${VER}-linux-x64"   "${BASE}/mkcert-v${VER}-linux-amd64"
+          curl -fsSL -o "mkcert-${VER}-macos-arm64" "${BASE}/mkcert-v${VER}-darwin-arm64"
+          curl -fsSL -o "mkcert-${VER}-windows-x64.exe" "${BASE}/mkcert-v${VER}-windows-amd64.exe"
+          chmod +x mkcert-${VER}-linux-x64 mkcert-${VER}-macos-arm64
+          ls -lh mkcert-${VER}-*
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: binaries-mkcert-${{ steps.ver.outputs.version }}
+          name: mkcert ${{ steps.ver.outputs.version }} (cross-platform binaries)
+          body: |
+            Mirror of [FiloSottile/mkcert ${{ steps.ver.outputs.version }}](https://github.com/FiloSottile/mkcert/releases/tag/v${{ steps.ver.outputs.version }}) for use with NKS WebDev Console's `wdc binaries install` flow. Naming matches the catalog's `${app}-${version}-${os}-${arch}` convention.
+          fail_on_unmatched_files: false
+          files: |
+            mkcert-${{ steps.ver.outputs.version }}-*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
