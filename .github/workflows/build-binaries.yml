@@ -111,17 +111,14 @@ jobs:
               # PHP 5 is too old for any modern toolchain on Linux or Mac.
               SKIP=true; LEGACY=true
               echo "::warning::PHP $MM Linux/Mac builds disabled" ;;
-            7.*)
-              # 7.x compiles on Linux via docker:ubuntu:20.04 (OpenSSL 1.1.1,
-              # libxml2 2.9). On modern macOS the bundled libxml2 (2.13+)
-              # changed const-correctness for xmlGetLastError() etc., breaking
-              # ext/libxml. We could build libxml2 from source first but it's
-              # not worth the CI time — skip mac for 7.x.
-              if [ "$TGT" = "macos-arm64" ]; then SKIP=true; echo "::warning::PHP 7.x macOS skipped (libxml2 ABI break)"; fi
-              LEGACY=true ;;
-            8.0)
-              # 8.0 still needs OpenSSL 1.1 but libxml2 const issue not
-              # present in 8.0.30 — works on both Linux (docker) and Mac (brew openssl@1.1).
+            7.*|8.0)
+              # 7.x and 8.0 compile on Linux via docker:ubuntu:20.04 (OpenSSL 1.1.1,
+              # libxml2 2.9). On modern macOS the bundled libxml2 (2.13+) changed
+              # const-correctness for xmlGetLastError() etc., breaking ext/libxml
+              # for 7.x and 8.0.30. Skip mac for both. (Originally only 7.x was
+              # known broken; brew libxml2 has since shipped a newer minor that
+              # also breaks 8.0.30.)
+              if [ "$TGT" = "macos-arm64" ]; then SKIP=true; echo "::warning::PHP $MM macOS skipped (libxml2 2.13+ ABI break)"; fi
               LEGACY=true ;;
             *)
               # 8.1+: native build, OpenSSL 3.

@@ -110,9 +110,14 @@ jobs:
           if [ "${{ matrix.target }}" = "macos-arm64" ]; then
             HTTP2_FLAGS="--enable-http2 --with-nghttp2=$(brew --prefix nghttp2)"
             BROTLI_FLAGS="--enable-brotli --with-brotli=$(brew --prefix brotli)"
+            # mod_md needs jansson via pkg-config; brew's jansson installs to
+            # /opt/homebrew but Apache configure doesn't auto-pick that path.
+            MD_FLAGS="--with-jansson=$(brew --prefix jansson)"
+            export PKG_CONFIG_PATH="$(brew --prefix jansson)/lib/pkgconfig:$(brew --prefix nghttp2)/lib/pkgconfig:$PKG_CONFIG_PATH"
           else
             HTTP2_FLAGS="--enable-http2"
             BROTLI_FLAGS="--enable-brotli"
+            MD_FLAGS=""
           fi
           ./configure --prefix="$PREFIX" \
             --enable-so --enable-ssl --enable-rewrite --enable-proxy \
@@ -130,7 +135,7 @@ jobs:
             --enable-lua --enable-watchdog --enable-buffer --enable-reqtimeout \
             --enable-authn-socache --enable-authnz-fcgi \
             --enable-mods-shared=reallyall \
-            $HTTP2_FLAGS $BROTLI_FLAGS \
+            $HTTP2_FLAGS $BROTLI_FLAGS $MD_FLAGS \
             $APR_FLAGS $SSL_FLAGS $PCRE_FLAGS $EXTRA_FLAGS
           make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) 2>&1 | tail -10
           make install
