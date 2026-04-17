@@ -1,12 +1,6 @@
 # @nks-hub/webdev-console-binaries
 
-[![Build PHP](https://github.com/nks-hub/webdev-console-binaries/actions/workflows/build-binaries.yml/badge.svg)](https://github.com/nks-hub/webdev-console-binaries/actions/workflows/build-binaries.yml)
-[![Build Apache](https://github.com/nks-hub/webdev-console-binaries/actions/workflows/build-apache.yml/badge.svg)](https://github.com/nks-hub/webdev-console-binaries/actions/workflows/build-apache.yml)
-[![Build Nginx](https://github.com/nks-hub/webdev-console-binaries/actions/workflows/build-nginx.yml/badge.svg)](https://github.com/nks-hub/webdev-console-binaries/actions/workflows/build-nginx.yml)
-[![Build MariaDB](https://github.com/nks-hub/webdev-console-binaries/actions/workflows/build-mariadb.yml/badge.svg)](https://github.com/nks-hub/webdev-console-binaries/actions/workflows/build-mariadb.yml)
-[![Build Redis](https://github.com/nks-hub/webdev-console-binaries/actions/workflows/build-redis.yml/badge.svg)](https://github.com/nks-hub/webdev-console-binaries/actions/workflows/build-redis.yml)
-[![Build mkcert](https://github.com/nks-hub/webdev-console-binaries/actions/workflows/build-mkcert.yml/badge.svg)](https://github.com/nks-hub/webdev-console-binaries/actions/workflows/build-mkcert.yml)
-[![Mirror upstream](https://github.com/nks-hub/webdev-console-binaries/actions/workflows/build-mirror.yml/badge.svg)](https://github.com/nks-hub/webdev-console-binaries/actions/workflows/build-mirror.yml)
+[![Build](https://github.com/nks-hub/webdev-console-binaries/actions/workflows/build-binaries.yml/badge.svg)](https://github.com/nks-hub/webdev-console-binaries/actions)
 [![Latest release](https://img.shields.io/github/v/release/nks-hub/webdev-console-binaries?label=latest)](https://github.com/nks-hub/webdev-console-binaries/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Cross-platform](https://img.shields.io/badge/Cross--platform-Win%20%2B%20macOS%20%2B%20Linux-22c55e)](https://github.com/nks-hub/webdev-console-binaries/releases)
@@ -18,17 +12,6 @@
 ## Why?
 
 The WDC daemon's `BinaryDownloader` runs `HttpClient.GetAsync(url)` without GitHub authentication on every end-user machine. Hosting binaries in the private source-code repo would 404 for everyone. This separate public repo decouples binary distribution from source-code visibility — install URLs work anonymously, source code stays private.
-
-## Features
-
-- 🐘 **PHP 5.6 → 8.5** — twelve minor versions, comprehensive ext set (opcache, gd, intl, pdo_mysql/pgsql/sqlite, ldap, gettext, tidy, sodium, ...) plus PECL: apcu, redis, xdebug, imagick, mongodb, swoole, memcached, igbinary, yaml, oauth, imap.
-- 🅰️ **Apache 2.4** — full module catalog: mod_md (built-in ACME / Let's Encrypt), mod_remoteip, http2, brotli, dav, cache, lua, ratelimit, session_crypto, socache_redis…
-- 🌐 **Nginx, Caddy** — modern web server alternatives with HTTP/2 + HTTP/3 support.
-- 🛢️ **MariaDB 11.4 LTS** — Linux + Windows MSI mirror.
-- 🔴 **Redis** — TLS-enabled source build for Linux + macOS, community fork mirror for Windows.
-- 🔒 **mkcert + cloudflared** — local CA + Cloudflare Tunnel daemon mirrors.
-- 📧 **Mailpit** — local SMTP testing.
-- 🐳 **Docker fallback** for legacy PHP — `ubuntu:20.04` container with OpenSSL 1.1 + libxml2 2.9 lets PHP 7.x build on modern Linux runners.
 
 ## Quick Start
 
@@ -47,6 +30,17 @@ Manual download via `curl` works the same way:
 curl -L -o php.tar.xz \
   https://github.com/nks-hub/webdev-console-binaries/releases/download/binaries-php-8.3.25/php-8.3.25-linux-x64.tar.xz
 ```
+
+## Features
+
+- 🐘 **PHP 5.6 → 8.5** — twelve minor versions, comprehensive ext set (opcache, gd, intl, pdo_mysql/pgsql/sqlite, ldap, gettext, tidy, sodium, ...) plus PECL: apcu, redis, xdebug, imagick, mongodb, swoole, memcached, igbinary, yaml, oauth, imap.
+- 🅰️ **Apache 2.4** — full module catalog: mod_md (built-in ACME / Let's Encrypt), mod_remoteip, http2, brotli, dav, cache, lua, ratelimit, session_crypto, socache_redis…
+- 🌐 **Nginx, Caddy** — modern web server alternatives with HTTP/2 + HTTP/3 support.
+- 🛢️ **MariaDB 11.4 LTS** — Linux + Windows MSI mirror.
+- 🔴 **Redis** — TLS-enabled source build for Linux + macOS, community fork mirror for Windows.
+- 🔒 **mkcert + cloudflared** — local CA + Cloudflare Tunnel daemon mirrors.
+- 📧 **Mailpit** — local SMTP testing.
+- 🐳 **Docker fallback** for legacy PHP — `ubuntu:20.04` container with OpenSSL 1.1 + libxml2 2.9 lets PHP 7.x build on modern Linux runners.
 
 ## What's published
 
@@ -71,16 +65,11 @@ curl -L -o php.tar.xz \
 | 8.3   | ✅      | ✅        | ✅          | OpenSSL 3, native build                                      |
 | 8.2   | ✅      | ✅        | ✅          | OpenSSL 3, native build                                      |
 | 8.1   | ✅      | ✅        | ✅          | OpenSSL 3, native build                                      |
-| 8.0   | ✅      | ✅        | ❌          | OpenSSL 1.1 (Linux docker); macOS libxml2 2.13+ ABI break    |
-| 7.4   | ✅      | ✅        | ❌          | OpenSSL 1.1 + libxml2 2.9 via docker; macOS skipped          |
-| 7.1–7.3 | ✅    | ✅        | ❌          | docker ubuntu:20.04 (OpenSSL 1.1, libxml2 2.9)               |
+| 8.0   | ✅      | ✅        | ✅          | OpenSSL 1.1 (Linux docker / Mac brew openssl@1.1 + libxml2 2.9) |
+| 7.4   | ✅      | ✅        | ✅          | OpenSSL 1.1 + libxml2 2.9 from source                        |
+| 7.1–7.3 | ✅    | ✅        | ✅          | docker ubuntu:20.04 (OpenSSL 1.1, libxml2 2.9)               |
 | 7.0   | ✅      | ❌        | ❌          | ICU 66+ namespace alias break; Windows-only                  |
 | 5.6   | ✅      | ❌        | ❌          | EOL; Windows-only via php.net                                |
-
-## Requirements
-
-- WDC daemon ≥ 0.1.6 (catalog client expects `nks-hub-binaries` source field)
-- Anonymous HTTPS access to `github.com` (releases) — no auth needed
 
 ## How a release is triggered
 
@@ -91,10 +80,34 @@ git push origin binaries-php-8.3.25
 
 The matching workflow under `.github/workflows/` runs the appropriate matrix and uploads the resulting tarballs/zips as release assets. Re-runs use the `-rN` suffix (`binaries-php-8.3.25-r2`) and are stripped before the version is resolved, so retries don't collide with the original tag.
 
+## Requirements
+
+- WDC daemon ≥ 0.1.6 (catalog client expects `nks-hub-binaries` source field)
+- Anonymous HTTPS access to `github.com` (releases) — no auth needed
+
+## Contributing
+
+Issues and PRs welcome. New binary requests should open an [issue](https://github.com/nks-hub/webdev-console-binaries/issues/new/choose) describing the upstream source, target platforms, and intended consumer (which WDC plugin will use it).
+
+## Support
+
+- [GitHub Issues](https://github.com/nks-hub/webdev-console-binaries/issues)
+- [NKS WebDev Console](https://github.com/nks-hub/webdev-console) — main project
+
 ## License
 
 [MIT](LICENSE) for the build scripts, workflow definitions, and documentation in this repository. Each published binary keeps its upstream license — see [LICENSE](LICENSE) for the per-app summary.
 
+## Links
+
+- [NKS WebDev Console](https://github.com/nks-hub/webdev-console) — main daemon project
+- [GitHub Releases](https://github.com/nks-hub/webdev-console-binaries/releases) — published binaries
+- [WDC Catalog API](https://github.com/nks-hub/webdev-console) — version resolver service
+- [SECURITY.md](SECURITY.md) — disclosure policy
+- [CHANGELOG.md](CHANGELOG.md) — release history
+
 ---
 
-Made by [NKS Hub](https://github.com/nks-hub) — part of the [NKS WebDev Console](https://github.com/nks-hub/webdev-console) project.
+<p align="center">
+  Made with ❤️ by <a href="https://github.com/nks-hub">NKS Hub</a>
+</p>
