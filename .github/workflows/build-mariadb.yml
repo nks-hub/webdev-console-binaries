@@ -44,8 +44,8 @@ jobs:
         run: |
           VER="${{ steps.ver.outputs.version }}"
           BASE="https://archive.mariadb.org/mariadb-${VER}/bintar"
-          # mariadb.org publishes Linux glibc and macOS arm64; Windows is MSI
-          # at https://archive.mariadb.org/mariadb-${VER}/winx64-packages/
+          # mariadb.org publishes Linux glibc and macOS arm64; Windows is shipped
+          # as a zero-install ZIP at https://archive.mariadb.org/mariadb-${VER}/winx64-packages/
           curl -fsSL -o "mariadb-${VER}-linux-x64.tar.gz" \
             "${BASE}-linux-systemd-x86_64/mariadb-${VER}-linux-systemd-x86_64.tar.gz" || \
           curl -fsSL -o "mariadb-${VER}-linux-x64.tar.gz" \
@@ -55,9 +55,11 @@ jobs:
           curl -fsSL -o "mariadb-${VER}-macos-arm64.tar.gz" \
             "https://archive.mariadb.org/mariadb-${VER}/bintar-osx_arm64/mariadb-${VER}-osx_arm64.tar.gz" || true
 
-          # Windows x64 MSI
-          curl -fsSL -o "mariadb-${VER}-windows-x64.msi" \
-            "https://archive.mariadb.org/mariadb-${VER}/winx64-packages/mariadb-${VER}-winx64.msi" || true
+          # Windows x64 ZIP (matches wdc-catalog format + daemon BinaryDownloader's
+          # zip extraction path; the MSI upstream publishes is not consumable by
+          # the daemon and the catalog points at archive.mariadb.org directly).
+          curl -fsSL -o "mariadb-${VER}-windows-x64.zip" \
+            "https://archive.mariadb.org/mariadb-${VER}/winx64-packages/mariadb-${VER}-winx64.zip" || true
 
           ls -lh mariadb-${VER}-* 2>/dev/null || echo "No artifacts downloaded"
 
