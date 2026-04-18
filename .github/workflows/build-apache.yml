@@ -68,6 +68,26 @@ jobs:
           URL="https://www.apachelounge.com/download/VS17/binaries/${REL_PATH}"
           echo "Resolved ApacheLounge URL: $URL"
           curl -fsSL -A "Mozilla/5.0 NKS-WDC/1.0" -o "httpd-${VER}-windows-x64.zip" "$URL"
+          # ── Supply-chain verification: ApacheLounge publishes a per-file
+          # .txt sidecar containing multiple hashes (SHA1..SHA512) in a
+          # human-readable format produced by GPGHash. Grep the SHA256 line
+          # and compare with local hash. Abort on mismatch or missing entry.
+          # TODO(SECURITY.md roadmap): additionally verify the detached PGP
+          # .asc signature (Steffen_Land.asc) once the ApacheLounge keyring
+          # is bootstrapped into CI.
+          SUMS_URL="https://www.apachelounge.com/download/VS17/binaries/${REL_PATH}.txt"
+          curl -fsSL -A "Mozilla/5.0 NKS-WDC/1.0" "$SUMS_URL" -o al-checksums.txt
+          expected=$(awk '/^SHA256-Checksum/{found=1; next} found && NF==1 {print tolower($1); exit}' al-checksums.txt)
+          if [ -z "$expected" ]; then
+            echo "::error::SHA256 entry not found in $SUMS_URL" >&2
+            exit 1
+          fi
+          actual=$(sha256sum "httpd-${VER}-windows-x64.zip" | awk '{print $1}')
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::SHA256 mismatch for ${REL_PATH} — expected $expected, got $actual" >&2
+            exit 1
+          fi
+          echo "✓ SHA256 verified (${REL_PATH}): $actual"
           ls -lh "httpd-${VER}-windows-x64.zip"
 
       # ── Linux: source build with apr/apr-util/pcre2 ──
@@ -91,6 +111,20 @@ jobs:
         run: |
           VER="${{ steps.ver.outputs.version }}"
           curl -fsSL -o httpd-src.tar.gz "https://archive.apache.org/dist/httpd/httpd-${VER}.tar.gz"
+          # ── Supply-chain verification: archive.apache.org publishes a
+          # .sha256 sidecar next to each tarball ("<hash> *<filename>").
+          # Abort the build if the hash can't be fetched or doesn't match.
+          # TODO(SECURITY.md roadmap): additionally verify the detached PGP
+          # .asc signature once the ASF release-manager KEYS file is
+          # bootstrapped into CI.
+          curl -fsSL "https://archive.apache.org/dist/httpd/httpd-${VER}.tar.gz.sha256" -o httpd-src.tar.gz.sha256
+          expected=$(awk '{print tolower($1); exit}' httpd-src.tar.gz.sha256)
+          actual=$(sha256sum httpd-src.tar.gz | awk '{print $1}')
+          if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+            echo "::error::SHA256 mismatch for httpd-${VER}.tar.gz — expected '$expected', got '$actual'" >&2
+            exit 1
+          fi
+          echo "✓ SHA256 verified (httpd-${VER}.tar.gz): $actual"
           tar xf httpd-src.tar.gz
           cd httpd-${VER}
           PREFIX="${{ github.workspace }}/install/httpd-${VER}"
