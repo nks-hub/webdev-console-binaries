@@ -58,6 +58,20 @@ jobs:
       # Windows/macOS slots that don't use the shim.
       - uses: actions/checkout@v4
 
+      - name: Set SOURCE_DATE_EPOCH (reproducibility)
+        shell: bash
+        run: |
+          # Pin mtime + autoconf/GNU-toolchain timestamps to a deterministic
+          # epoch so two re-runs of the same tag produce byte-identical
+          # archives. Honored by autoconf, libtool, tar (with --mtime).
+          TS="${{ github.event.head_commit.timestamp }}"
+          if [ -n "$TS" ]; then
+            SDE=$(date -d "$TS" +%s 2>/dev/null || python3 -c "import sys,datetime;print(int(datetime.datetime.fromisoformat(sys.argv[1].replace('Z','+00:00')).timestamp()))" "$TS" 2>/dev/null || echo "")
+          fi
+          [ -z "$SDE" ] && SDE=$(date +%s)
+          echo "SOURCE_DATE_EPOCH=$SDE" >> "$GITHUB_ENV"
+          echo "SOURCE_DATE_EPOCH=$SDE"
+
       - name: Resolve PHP version
         id: ver
         shell: bash
@@ -488,7 +502,18 @@ jobs:
         run: |
           VER="${{ steps.ver.outputs.version }}"
           cd "${{ github.workspace }}/install/php-${VER}"
-          tar -cJf "${{ github.workspace }}/php-${VER}-${{ matrix.target }}.tar.xz" \
+          # Deterministic tar: GNU tar on Linux, gtar on macOS (BSD tar lacks
+          # --sort / --pax-option). SOURCE_DATE_EPOCH pins mtime across reruns.
+          if [ "${{ matrix.target }}" = "macos-arm64" ]; then
+            brew install --quiet gnu-tar >/dev/null
+            TAR=gtar
+          else
+            TAR=tar
+          fi
+          "$TAR" --sort=name --owner=0 --group=0 --numeric-owner \
+            --mtime="@${SOURCE_DATE_EPOCH}" \
+            --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime \
+            -cJf "${{ github.workspace }}/php-${VER}-${{ matrix.target }}.tar.xz" \
             bin sbin lib include etc
           ls -lh "${{ github.workspace }}/php-${VER}-${{ matrix.target }}.tar.xz"
 
