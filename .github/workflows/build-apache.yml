@@ -80,16 +80,55 @@ jobs:
         if: matrix.target == 'windows-x64'
         shell: bash
         run: |
+          set -euo pipefail
           VER="${{ steps.ver.outputs.version }}"
           # ApacheLounge filenames embed the build date as a 6-digit suffix
           # (httpd-2.4.66-250207-win64-VS17.zip). Always scrape the index
           # rather than guess — the suffix changes per release.
           HTML=$(curl -fsSL -A "Mozilla/5.0 NKS-WDC/1.0" "https://www.apachelounge.com/download/VS17/")
           REL_PATH=$(echo "$HTML" | grep -oE "httpd-${VER}-[0-9]+-win64-VS17\\.zip" | head -1)
-          [ -z "$REL_PATH" ] && { echo "Apache $VER not found on ApacheLounge index"; exit 1; }
+          [ -z "$REL_PATH" ] && { echo "::error::Apache $VER not found on ApacheLounge VS17 index"; exit 1; }
           URL="https://www.apachelounge.com/download/VS17/binaries/${REL_PATH}"
           echo "Resolved ApacheLounge URL: $URL"
-          curl -fsSL -A "Mozilla/5.0 NKS-WDC/1.0" -o "httpd-${VER}-windows-x64.zip" "$URL"
+
+          # Content-Type preflight — ApacheLounge serves HTML-200 with text/html
+          # when a build rotates off disk. Reject anything that isn't zip/octet-stream.
+          CT=$(curl -sI -A "Mozilla/5.0 NKS-WDC/1.0" "$URL" | tr -d '\r' | grep -i '^content-type:' | head -1 | awk '{print tolower($2)}')
+          echo "Preflight Content-Type: $CT"
+          case "$CT" in
+            application/zip*|application/octet-stream*|application/x-zip*) : ;;
+            *) echo "::error::Unexpected Content-Type '$CT' for $URL — ApacheLounge likely rotated the build off disk"; exit 1 ;;
+          esac
+
+          OUT="httpd-${VER}-windows-x64.zip"
+          curl -fsSL -A "Mozilla/5.0 NKS-WDC/1.0" -o "$OUT" "$URL"
+          ls -lh "$OUT"
+
+          # Minimum-size sanity — Apache Windows ZIP is consistently >10 MB.
+          SIZE=$(stat -c%s "$OUT" 2>/dev/null || stat -f%z "$OUT")
+          echo "Downloaded size: $SIZE bytes"
+          if [ "$SIZE" -lt 5000000 ]; then
+            echo "::error::Downloaded file is only $SIZE bytes — Apache ZIP must be >=5 MB. ApacheLounge likely served an HTML error page."
+            head -c 200 "$OUT" | cat -v
+            exit 1
+          fi
+
+          # Magic-byte check — real ZIP starts with PK\x03\x04.
+          MAGIC=$(head -c 4 "$OUT" | xxd -p)
+          echo "Magic bytes (hex): $MAGIC"
+          case "$MAGIC" in
+            504b0304|504b0506|504b0708) : ;;
+            *) echo "::error::File does not have ZIP magic bytes (got $MAGIC, expected 504b0304). Aborting."; file "$OUT"; exit 1 ;;
+          esac
+
+          # Post-download smoke test — a genuine Apache ZIP lists 200+ entries.
+          ENTRIES=$(unzip -l "$OUT" | tail -1 | awk '{print $2}')
+          echo "Archive entry count: $ENTRIES"
+          if [ -z "$ENTRIES" ] || [ "$ENTRIES" -lt 50 ]; then
+            echo "::error::Archive contains only $ENTRIES entries (expected >=50). Refusing to publish."
+            exit 1
+          fi
+
           # ── Supply-chain verification: ApacheLounge publishes a per-file
           # .txt sidecar containing multiple hashes (SHA1..SHA512) in a
           # human-readable format produced by GPGHash. Grep the SHA256 line
@@ -104,13 +143,12 @@ jobs:
             echo "::error::SHA256 entry not found in $SUMS_URL" >&2
             exit 1
           fi
-          actual=$(sha256sum "httpd-${VER}-windows-x64.zip" | awk '{print $1}')
+          actual=$(sha256sum "$OUT" | awk '{print $1}')
           if [ "$expected" != "$actual" ]; then
             echo "::error::SHA256 mismatch for ${REL_PATH} — expected $expected, got $actual" >&2
             exit 1
           fi
           echo "✓ SHA256 verified (${REL_PATH}): $actual"
-          ls -lh "httpd-${VER}-windows-x64.zip"
 
       # ── Linux: source build with apr/apr-util/pcre2 ──
       - name: Linux — install build deps
@@ -278,6 +316,7 @@ jobs:
         if: matrix.target != 'windows-x64'
         shell: bash
         run: |
+          set -euo pipefail
           VER="${{ steps.ver.outputs.version }}"
           STAGE="${{ github.workspace }}/install/httpd-${VER}"
           cd "$STAGE"
@@ -301,6 +340,7 @@ jobs:
           fi
           rm -rf "$STAGE/manual" "$STAGE/logs" "$STAGE/cgi-bin" "$STAGE/icons"
 
+          OUT="${{ github.workspace }}/httpd-${VER}-${{ matrix.target }}.tar.xz"
           # Deterministic tar: GNU tar on Linux, gtar on macOS (BSD tar lacks
           # --sort / --pax-option). SOURCE_DATE_EPOCH pins mtime across reruns.
           if [ "${{ matrix.target }}" = "macos-arm64" ]; then
@@ -312,15 +352,40 @@ jobs:
           "$TAR" --sort=name --owner=0 --group=0 --numeric-owner \
             --mtime="@${SOURCE_DATE_EPOCH}" \
             --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime \
-            -cJf "${{ github.workspace }}/httpd-${VER}-${{ matrix.target }}.tar.xz" \
+            -cJf "$OUT" \
             bin include modules conf $(ls -d build error htdocs man 2>/dev/null) \
             $(test -d sbin && echo sbin) $(test -d lib && echo lib)
-          # The Linux bundling step above creates lib/; the test -d lib above
-          # already picks it up. Retained for clarity.
-          ls -lh "${{ github.workspace }}/httpd-${VER}-${{ matrix.target }}.tar.xz"
+          # The Linux bundling step above (if applicable) creates lib/; the
+          # test -d lib above already picks it up.
+          ls -lh "$OUT"
+
+          # Magic-byte check — tar.xz must start with 0xFD '7zXZ\0'.
+          MAGIC=$(head -c 6 "$OUT" | xxd -p)
+          echo "Magic bytes (hex): $MAGIC"
+          case "$MAGIC" in
+            fd377a585a00) : ;;
+            *) echo "::error::File does not have tar.xz magic bytes (got $MAGIC, expected fd377a585a00). Aborting."; file "$OUT"; exit 1 ;;
+          esac
+
+          # Minimum-size sanity — Apache tar.xz for built binaries is >1 MB.
+          SIZE=$(stat -c%s "$OUT" 2>/dev/null || stat -f%z "$OUT")
+          echo "Packaged size: $SIZE bytes"
+          if [ "$SIZE" -lt 1000000 ]; then
+            echo "::error::Packaged archive is only $SIZE bytes — expected >=1 MB. Build likely produced an empty tree."
+            exit 1
+          fi
+
+          # Post-build smoke test — listing should contain >=50 entries and bin/httpd.
+          ENTRIES=$(tar -tJf "$OUT" | wc -l)
+          echo "Archive entry count: $ENTRIES"
+          if [ "$ENTRIES" -lt 50 ]; then
+            echo "::error::Archive contains only $ENTRIES entries (expected >=50)."
+            exit 1
+          fi
+          tar -tJf "$OUT" | grep -qE '(^|/)bin/httpd$' || { echo "::error::bin/httpd not present in archive"; exit 1; }
           # Top-level contents visibility — future broken-test state leaks
           # (rogue files dropped into $STAGE) will show up in CI logs here.
-          tar -tf "${{ github.workspace }}/httpd-${VER}-${{ matrix.target }}.tar.xz" | head -30
+          tar -tf "$OUT" | head -30
 
       - name: Upload to release
         uses: softprops/action-gh-release@v3
