@@ -27,6 +27,16 @@ on:
         required: true
         type: string
 
+concurrency:
+  # Serialize runs targeting the same release tag so -r2/-r3 retry
+  # pushes don't race softprops/action-gh-release uploads. Different
+  # apps/versions mirror in parallel. cancel-in-progress=false keeps a
+  # long-running mirror from being killed by a metadata re-tag.
+  # This workflow handles 3 apps (caddy/cloudflared/mailpit) so the key
+  # includes `app` too; push events use github.ref which already encodes the app.
+  group: ${{ github.workflow }}-${{ github.event.inputs.app || '' }}-${{ github.event.inputs.version || github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
