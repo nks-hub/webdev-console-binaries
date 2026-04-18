@@ -121,14 +121,62 @@ jobs:
           make install
           ls "$PREFIX/sbin/" "$PREFIX/conf/" | head -10
 
+      # macOS produces a dynamically linked binary with absolute /opt/homebrew
+      # paths baked into LC_LOAD_DYLIB commands. Without bundling, the tarball
+      # fails with `dyld: Library not loaded` on any machine without the exact
+      # brew formulae installed. Copy the required dylibs into lib/ next to
+      # sbin/nginx and rewrite the dylib load paths to @executable_path-relative
+      # so the tarball is self-contained.
+      - name: macOS — bundle Homebrew dylibs into install tree
+        if: matrix.target == 'macos-arm64'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          STAGE="${{ github.workspace }}/install/nginx-${VER}"
+          mkdir -p "$STAGE/lib"
+          echo "── otool BEFORE ──"
+          otool -L "$STAGE/sbin/nginx"
+          # Collect required dylibs from Homebrew formulae that nginx links against
+          for dep in pcre2 openssl@3 zlib; do
+            BREW_PREFIX=$(brew --prefix "$dep")
+            find "$BREW_PREFIX/lib" -maxdepth 1 -name "*.dylib" -type f -exec cp -L {} "$STAGE/lib/" \;
+          done
+          ls -l "$STAGE/lib/"
+          # Rewrite dylib references in nginx + each bundled dylib so they resolve
+          # via @executable_path/../lib/<name>.dylib instead of absolute brew paths.
+          # Also rewrite each dylib's own LC_ID_DYLIB so inter-dylib references
+          # (e.g. libssl → libcrypto) resolve through the bundled copies.
+          for bin in "$STAGE/sbin/nginx" "$STAGE/lib/"*.dylib; do
+            for dep_path in $(otool -L "$bin" | awk 'NR>1 {print $1}' | grep -E "^(/opt/homebrew|/usr/local)" || true); do
+              dep_name=$(basename "$dep_path")
+              if [ -f "$STAGE/lib/$dep_name" ]; then
+                install_name_tool -change "$dep_path" "@executable_path/../lib/$dep_name" "$bin" || true
+              fi
+            done
+            if [[ "$bin" == *.dylib ]]; then
+              install_name_tool -id "@executable_path/../lib/$(basename "$bin")" "$bin" || true
+            fi
+          done
+          echo "── otool AFTER ──"
+          otool -L "$STAGE/sbin/nginx"
+          # Verify no external brew refs remain in the nginx binary itself
+          if otool -L "$STAGE/sbin/nginx" | grep -qE "/opt/homebrew|/usr/local"; then
+            echo "::error::nginx macOS binary still has brew-absolute refs"
+            exit 1
+          fi
+
       - name: Package — Linux/macOS tar.xz
         if: matrix.target != 'windows-x64'
         shell: bash
         run: |
           VER="${{ steps.ver.outputs.version }}"
           cd "${{ github.workspace }}/install/nginx-${VER}"
+          PKG_DIRS="sbin conf html"
+          if [ "${{ matrix.target }}" = "macos-arm64" ]; then
+            PKG_DIRS="$PKG_DIRS lib"
+          fi
           tar -cJf "${{ github.workspace }}/nginx-${VER}-${{ matrix.target }}.tar.xz" \
-            sbin conf html
+            $PKG_DIRS
           ls -lh "${{ github.workspace }}/nginx-${VER}-${{ matrix.target }}.tar.xz"
 
       - name: Upload to release
