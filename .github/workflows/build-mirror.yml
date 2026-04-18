@@ -157,7 +157,7 @@ jobs:
           ls -lh "${ASSETS[@]}"
 
       - name: Upload to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: binaries-${{ steps.ver.outputs.app }}-${{ steps.ver.outputs.version }}
           name: ${{ steps.ver.outputs.app }} ${{ steps.ver.outputs.version }} (cross-platform binaries)

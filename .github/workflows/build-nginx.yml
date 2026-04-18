@@ -132,7 +132,7 @@ jobs:
           ls -lh "${{ github.workspace }}/nginx-${VER}-${{ matrix.target }}.tar.xz"
 
       - name: Upload to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: binaries-nginx-${{ steps.ver.outputs.version }}
           name: Nginx ${{ steps.ver.outputs.version }} (cross-platform binaries)
