@@ -500,7 +500,7 @@ jobs:
       # booleans inside an action input.
       - name: Upload to release
         if: matrix.target == 'windows-x64' || env.skip_source != 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: binaries-php-${{ steps.ver.outputs.version }}
           name: PHP ${{ steps.ver.outputs.version }} (cross-platform binaries)

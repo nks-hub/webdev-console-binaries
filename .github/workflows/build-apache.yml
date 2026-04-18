@@ -240,7 +240,7 @@ jobs:
           tar -tf "${{ github.workspace }}/httpd-${VER}-${{ matrix.target }}.tar.xz" | head -30
 
       - name: Upload to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: binaries-apache-${{ steps.ver.outputs.version }}
           name: Apache HTTPD ${{ steps.ver.outputs.version }} (cross-platform binaries)

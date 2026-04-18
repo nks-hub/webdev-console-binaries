@@ -72,7 +72,7 @@ jobs:
           ls -lh mariadb-${VER}-* 2>/dev/null || echo "No artifacts downloaded"
 
       - name: Upload to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: binaries-mariadb-${{ steps.ver.outputs.version }}
           name: MariaDB ${{ steps.ver.outputs.version }} (cross-platform binaries)
