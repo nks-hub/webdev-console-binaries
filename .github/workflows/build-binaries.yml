@@ -44,6 +44,12 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
+      # Checkout is needed so legacy-PHP (7.0/7.1) builds can read
+      # .github/workflows/assets/icu-config-shim.sh from the bind-mounted
+      # /work inside the ubuntu:20.04 docker. Negligible cost (<1 s) on
+      # Windows/macOS slots that don't use the shim.
+      - uses: actions/checkout@v4
+
       - name: Resolve PHP version
         id: ver
         shell: bash
@@ -168,24 +174,14 @@ jobs:
               libxpm-dev libtidy-dev gettext libc-client-dev libkrb5-dev libmagickwand-dev \
               libmemcached-dev libyaml-dev
             # PHP 7.0/7.1 ext/intl looks for the legacy icu-config script, removed
-            # from ICU 60+. PHP's ext/intl/config.m4 calls --cxxflags, --cppflags-searchpath
-            # (must be JUST -I paths, not full cflags), --ldflags --ldflags-libsonly
-            # --ldflags-system --ldflags-icuio. Wrapper handles each accurately so
-            # the C++ intl_convertcpp.cpp finds UnicodeString and friends.
-            printf '%s\n' '#!/bin/bash' \
-              'PCS=\"icu-i18n icu-uc\"' \
-              'case \"\$1\" in' \
-              '  --version) pkg-config --modversion icu-i18n ;;' \
-              '  --prefix) echo /usr ;;' \
-              '  --cflags|--cxxflags|--cppflags) pkg-config --cflags \$PCS ;;' \
-              '  --cppflags-searchpath) pkg-config --cflags-only-I \$PCS ;;' \
-              '  --ldflags) pkg-config --libs \$PCS ;;' \
-              '  --ldflags-libsonly) pkg-config --libs-only-l \$PCS ;;' \
-              '  --ldflags-searchpath) pkg-config --libs-only-L \$PCS ;;' \
-              '  --ldflags-system) echo \"\" ;;' \
-              '  --ldflags-icuio) pkg-config --libs icu-io 2>/dev/null || echo \"\" ;;' \
-              '  *) echo \"\" ;;' \
-              'esac' > /usr/local/bin/icu-config
+            # from ICU 60+. Shim is a checked-in file (see HIGH-B1 in nks-ws
+            # docs/reviews/2026-04-18-binaries-repo-deep-review.md) so edits
+            # don't traverse two layers of shell escaping (outer bash -c \"...\"
+            # + inner heredoc). Any dropped backslash before \$ in the prior
+            # heredoc would have interpolated the host runner env — including
+            # GITHUB_TOKEN — into the guest shim, which writes to /work which
+            # is bind-mounted back to the host workspace.
+            cp /work/.github/workflows/assets/icu-config-shim.sh /usr/local/bin/icu-config
             chmod +x /usr/local/bin/icu-config
             cat /usr/local/bin/icu-config
             curl -fsSL -o /tmp/php-src.tar.xz https://www.php.net/distributions/php-${VER}.tar.xz
