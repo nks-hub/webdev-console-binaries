@@ -37,15 +37,17 @@ jobs:
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Download upstream binaries (Linux x64, macOS arm64, Windows x64)
+      - name: Download upstream binaries (Linux x64/arm64, macOS x64/arm64, Windows x64)
         shell: bash
         run: |
           VER="${{ steps.ver.outputs.version }}"
           BASE="https://github.com/FiloSottile/mkcert/releases/download/v${VER}"
-          curl -fsSL -o "mkcert-${VER}-linux-x64"   "${BASE}/mkcert-v${VER}-linux-amd64"
-          curl -fsSL -o "mkcert-${VER}-macos-arm64" "${BASE}/mkcert-v${VER}-darwin-arm64"
+          curl -fsSL -o "mkcert-${VER}-linux-x64"      "${BASE}/mkcert-v${VER}-linux-amd64"
+          curl -fsSL -o "mkcert-${VER}-linux-arm64"    "${BASE}/mkcert-v${VER}-linux-arm64"
+          curl -fsSL -o "mkcert-${VER}-macos-x64"      "${BASE}/mkcert-v${VER}-darwin-amd64"
+          curl -fsSL -o "mkcert-${VER}-macos-arm64"    "${BASE}/mkcert-v${VER}-darwin-arm64"
           curl -fsSL -o "mkcert-${VER}-windows-x64.exe" "${BASE}/mkcert-v${VER}-windows-amd64.exe"
-          chmod +x mkcert-${VER}-linux-x64 mkcert-${VER}-macos-arm64
+          chmod +x mkcert-${VER}-linux-x64 mkcert-${VER}-linux-arm64 mkcert-${VER}-macos-x64 mkcert-${VER}-macos-arm64
           ls -lh mkcert-${VER}-*
 
       - name: Upload to release
