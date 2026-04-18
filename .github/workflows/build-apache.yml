@@ -218,6 +218,62 @@ jobs:
           make install
           ls "$PREFIX/bin/" "$PREFIX/modules/" | head -10
 
+      # Linux produces a dynamically linked httpd + modules/*.so that pull in
+      # libapr-1.so.0, libaprutil-1.so.0, libssl.so.3, libcrypto.so.3, libpcre2,
+      # libxml2 etc. from the CI runner's /usr/lib. A user on Debian/Alpine/Arch
+      # /RHEL/Fedora hits `libapr-1.so.0: cannot open shared object file` or ABI
+      # mismatches. Bundle the non-system deps under lib/ and rewrite RPATH to
+      # $ORIGIN/../lib so the tarball is self-contained within any distro that
+      # ships a compatible glibc (ubuntu-24.04 glibc is the ABI floor).
+      # Mirrors the macOS dylib bundling pattern from PR #18.
+      - name: Linux — bundle runtime .so deps + rewrite RPATH
+        if: matrix.target == 'linux-x64'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          STAGE="${{ github.workspace }}/install/httpd-${VER}"
+          command -v patchelf >/dev/null 2>&1 || sudo apt-get install -y -q patchelf
+          mkdir -p "$STAGE/lib"
+          echo "── ldd BEFORE ──"
+          ldd "$STAGE/bin/httpd"
+          # Collect non-system .so deps referenced by httpd + every module *.so.
+          # Skip the libc family and ld-linux — bundling those invites ABI hell
+          # across glibc versions; we require the target distro glibc >= ubuntu-24.04.
+          collect_deps() {
+            local bin="$1"
+            ldd "$bin" 2>/dev/null | awk '/=> \// {print $3}' | \
+              grep -Ev '/(ld-linux|libc|libm|libdl|libpthread|librt|libresolv|libutil|libnsl)[-.]' || true
+          }
+          {
+            collect_deps "$STAGE/bin/httpd"
+            for so in "$STAGE/modules/"*.so; do
+              [ -f "$so" ] && collect_deps "$so"
+            done
+          } | sort -u | while read -r dep; do
+            [ -n "$dep" ] && cp -Lv "$dep" "$STAGE/lib/"
+          done
+          ls -l "$STAGE/lib/" || true
+          # Rewrite RPATH on httpd (lib/ is sibling to bin/) and on each module
+          # (modules/ is also sibling to lib/).
+          patchelf --set-rpath '$ORIGIN/../lib' "$STAGE/bin/httpd"
+          for so in "$STAGE/modules/"*.so; do
+            [ -f "$so" ] && patchelf --set-rpath '$ORIGIN/../lib' "$so"
+          done
+          # Also rewrite RPATH on the bundled libs themselves so inter-lib
+          # references (libssl → libcrypto, libaprutil → libapr) resolve via
+          # the bundled copies rather than the system ones.
+          for so in "$STAGE/lib/"*.so*; do
+            [ -f "$so" ] && [ ! -L "$so" ] && patchelf --set-rpath '$ORIGIN' "$so" || true
+          done
+          echo "── ldd AFTER ──"
+          ldd "$STAGE/bin/httpd"
+          # Verify no /lib/ or /usr/lib/ abs refs to the third-party libs remain
+          # on the main binary. libc family is allowed through.
+          if ldd "$STAGE/bin/httpd" | grep -qE '=> /(lib|usr/lib)/.*/(libapr|libssl|libcrypto|libpcre|libxml|libz\.|libnghttp2|libbrotli|liblua|libcurl|libjansson)'; then
+            echo "::error::httpd still has system-abs deps to bundled libs after RPATH rewrite"
+            exit 1
+          fi
+
       - name: Package — Linux/macOS tar.xz
         if: matrix.target != 'windows-x64'
         shell: bash
@@ -259,6 +315,8 @@ jobs:
             -cJf "${{ github.workspace }}/httpd-${VER}-${{ matrix.target }}.tar.xz" \
             bin include modules conf $(ls -d build error htdocs man 2>/dev/null) \
             $(test -d sbin && echo sbin) $(test -d lib && echo lib)
+          # The Linux bundling step above creates lib/; the test -d lib above
+          # already picks it up. Retained for clarity.
           ls -lh "${{ github.workspace }}/httpd-${VER}-${{ matrix.target }}.tar.xz"
           # Top-level contents visibility — future broken-test state leaks
           # (rogue files dropped into $STAGE) will show up in CI logs here.
