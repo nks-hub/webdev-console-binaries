@@ -68,6 +68,15 @@ jobs:
               curl -fsSL -o "redis-${VER}-windows-x64.zip" "$URL"; break
             fi
           done
+          # ── Supply-chain verification: TODO(SECURITY.md roadmap)
+          # Neither tporadowski/redis nor redis-windows/redis-windows ship
+          # SHA256 sidecars or GPG .asc signatures alongside their release
+          # assets (verified 2026-04 via GitHub releases API — assets list
+          # contains only the .zip / .msi, no companion manifest). Mirroring
+          # a community Windows fork is inherently higher-trust than a
+          # first-party release; switching to a signed upstream (if Redis
+          # ever republishes an official Windows build) or pinning the
+          # git-tag commit SHA of the fork are both tracked in SECURITY.md.
           ls -lh "redis-${VER}-windows-x64.zip"
 
       # ── Linux + macOS: build from source ──
@@ -85,6 +94,16 @@ jobs:
         run: |
           VER="${{ steps.ver.outputs.version }}"
           curl -fsSL -o redis-src.tar.gz "https://download.redis.io/releases/redis-${VER}.tar.gz"
+          # ── Supply-chain verification: TODO(SECURITY.md roadmap)
+          # download.redis.io publishes neither a SHA sidecar nor a detached
+          # PGP signature next to source tarballs (verified 2026-04 —
+          # .sha256, .sha512, .asc all return 404). The GitHub release at
+          # github.com/redis/redis/releases/tags/${VER} also has zero
+          # assets — only the auto-generated source archive, which differs
+          # byte-for-byte from the download.redis.io tarball (the latter
+          # includes pre-built COMMIT/version files). Until Redis starts
+          # publishing verifiable hashes, upstream integrity relies solely
+          # on TLS to download.redis.io.
           tar xf redis-src.tar.gz
           cd redis-${VER}
           PREFIX="${{ github.workspace }}/install/redis-${VER}"
