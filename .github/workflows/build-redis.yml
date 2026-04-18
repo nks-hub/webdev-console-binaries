@@ -143,12 +143,63 @@ jobs:
           make PREFIX="$PREFIX" install
           ls "$PREFIX/bin/" | head -10
 
+      # Linux produces dynamically linked redis-server/redis-cli/etc. that pull
+      # in libssl.so.3, libcrypto.so.3 (BUILD_TLS=yes) from the CI runner's
+      # /usr/lib. A user on Debian/Alpine/Arch/RHEL/Fedora hits `libssl.so.3:
+      # cannot open shared object file` or ABI mismatches. Bundle the non-system
+      # deps under lib/ and rewrite RPATH to $ORIGIN/../lib so the tarball is
+      # self-contained within any distro that ships a compatible glibc
+      # (ubuntu-24.04 glibc is the ABI floor). Mirrors PR #18 nginx macOS.
+      - name: Linux — bundle runtime .so deps + rewrite RPATH
+        if: matrix.target == 'linux-x64'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          STAGE="${{ github.workspace }}/install/redis-${VER}"
+          command -v patchelf >/dev/null 2>&1 || sudo apt-get install -y -q patchelf
+          mkdir -p "$STAGE/lib"
+          echo "── ldd BEFORE ──"
+          ldd "$STAGE/bin/redis-server"
+          # Collect non-system .so deps for every binary in bin/ (redis-server,
+          # redis-cli, redis-benchmark, redis-sentinel, redis-check-aof,
+          # redis-check-rdb all link against the same libssl/libcrypto set).
+          # Skip libc family + ld-linux — lowest-ABI compat assumption.
+          collect_deps() {
+            ldd "$1" 2>/dev/null | awk '/=> \// {print $3}' | \
+              grep -Ev '/(ld-linux|libc|libm|libdl|libpthread|librt|libresolv|libutil|libnsl)[-.]' || true
+          }
+          for bin in "$STAGE/bin/"*; do
+            [ -f "$bin" ] && [ -x "$bin" ] && collect_deps "$bin"
+          done | sort -u | while read -r dep; do
+            [ -n "$dep" ] && cp -Lv "$dep" "$STAGE/lib/"
+          done
+          ls -l "$STAGE/lib/" || true
+          # Rewrite RPATH on every redis binary (lib/ is sibling to bin/).
+          for bin in "$STAGE/bin/"*; do
+            [ -f "$bin" ] && [ -x "$bin" ] && patchelf --set-rpath '$ORIGIN/../lib' "$bin" 2>/dev/null || true
+          done
+          # Also rewrite RPATH on each bundled lib so inter-lib refs
+          # (libssl → libcrypto) resolve through the bundled copies.
+          for so in "$STAGE/lib/"*.so*; do
+            [ -f "$so" ] && [ ! -L "$so" ] && patchelf --set-rpath '$ORIGIN' "$so" || true
+          done
+          echo "── ldd AFTER ──"
+          ldd "$STAGE/bin/redis-server"
+          if ldd "$STAGE/bin/redis-server" | grep -qE '=> /(lib|usr/lib)/.*/(libssl|libcrypto)'; then
+            echo "::error::redis-server still has system-abs deps to bundled libs after RPATH rewrite"
+            exit 1
+          fi
+
       - name: Package — Linux/macOS tar.xz
         if: matrix.target != 'windows-x64'
         shell: bash
         run: |
           VER="${{ steps.ver.outputs.version }}"
           cd "${{ github.workspace }}/install/redis-${VER}"
+          PKG_DIRS="bin"
+          if [ -d lib ]; then
+            PKG_DIRS="$PKG_DIRS lib"
+          fi
           # Deterministic tar: GNU tar on Linux, gtar on macOS (BSD tar lacks
           # --sort / --pax-option). SOURCE_DATE_EPOCH pins mtime across reruns.
           if [ "${{ matrix.target }}" = "macos-arm64" ]; then
@@ -160,7 +211,7 @@ jobs:
           "$TAR" --sort=name --owner=0 --group=0 --numeric-owner \
             --mtime="@${SOURCE_DATE_EPOCH}" \
             --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime \
-            -cJf "${{ github.workspace }}/redis-${VER}-${{ matrix.target }}.tar.xz" bin
+            -cJf "${{ github.workspace }}/redis-${VER}-${{ matrix.target }}.tar.xz" $PKG_DIRS
           ls -lh "${{ github.workspace }}/redis-${VER}-${{ matrix.target }}.tar.xz"
 
       - name: Upload to release

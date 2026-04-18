@@ -187,6 +187,47 @@ jobs:
             exit 1
           fi
 
+      # Linux produces a dynamically linked sbin/nginx that pulls in
+      # libssl.so.3, libcrypto.so.3, libpcre2-8.so.0, libz.so.1 from the CI
+      # runner's /usr/lib. A user on Debian/Alpine/Arch/RHEL/Fedora hits
+      # `libpcre2-8.so.0: cannot open shared object file` or ABI mismatches.
+      # Bundle the non-system deps under lib/ and rewrite RPATH to
+      # $ORIGIN/../lib so the tarball is self-contained within any distro that
+      # ships a compatible glibc (ubuntu-24.04 glibc is the ABI floor).
+      # Mirrors the macOS dylib bundling pattern from PR #18.
+      - name: Linux — bundle runtime .so deps + rewrite RPATH
+        if: matrix.target == 'linux-x64'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          STAGE="${{ github.workspace }}/install/nginx-${VER}"
+          command -v patchelf >/dev/null 2>&1 || sudo apt-get install -y -q patchelf
+          mkdir -p "$STAGE/lib"
+          echo "── ldd BEFORE ──"
+          ldd "$STAGE/sbin/nginx"
+          # Skip the libc family and ld-linux — bundling those invites ABI hell
+          # across glibc versions; we require the target distro glibc >=
+          # ubuntu-24.04. Everything else (libssl, libpcre2, libz) goes into lib/.
+          ldd "$STAGE/sbin/nginx" 2>/dev/null | awk '/=> \// {print $3}' | \
+            grep -Ev '/(ld-linux|libc|libm|libdl|libpthread|librt|libresolv|libutil|libnsl)[-.]' | \
+            sort -u | while read -r dep; do
+              [ -n "$dep" ] && cp -Lv "$dep" "$STAGE/lib/"
+            done
+          ls -l "$STAGE/lib/" || true
+          # Rewrite RPATH on nginx (lib/ is sibling to sbin/).
+          patchelf --set-rpath '$ORIGIN/../lib' "$STAGE/sbin/nginx"
+          # Also rewrite RPATH on each bundled lib so inter-lib refs
+          # (libssl → libcrypto) resolve through the bundled copies.
+          for so in "$STAGE/lib/"*.so*; do
+            [ -f "$so" ] && [ ! -L "$so" ] && patchelf --set-rpath '$ORIGIN' "$so" || true
+          done
+          echo "── ldd AFTER ──"
+          ldd "$STAGE/sbin/nginx"
+          if ldd "$STAGE/sbin/nginx" | grep -qE '=> /(lib|usr/lib)/.*/(libssl|libcrypto|libpcre|libz\.)'; then
+            echo "::error::nginx still has system-abs deps to bundled libs after RPATH rewrite"
+            exit 1
+          fi
+
       - name: Package — Linux/macOS tar.xz
         if: matrix.target != 'windows-x64'
         shell: bash
@@ -194,12 +235,15 @@ jobs:
           VER="${{ steps.ver.outputs.version }}"
           cd "${{ github.workspace }}/install/nginx-${VER}"
           PKG_DIRS="sbin conf html"
+          # lib/ is present on macOS (PR #18 bundling) + Linux (PR #24 bundling).
+          if [ -d lib ]; then
+            PKG_DIRS="$PKG_DIRS lib"
+          fi
           # Deterministic tar: GNU tar on Linux, gtar on macOS (BSD tar lacks
           # --sort / --pax-option). SOURCE_DATE_EPOCH pins mtime across reruns.
           if [ "${{ matrix.target }}" = "macos-arm64" ]; then
             brew install --quiet gnu-tar >/dev/null
             TAR=gtar
-            PKG_DIRS="$PKG_DIRS lib"
           else
             TAR=tar
           fi
