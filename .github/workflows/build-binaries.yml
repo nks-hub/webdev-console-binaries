@@ -382,6 +382,52 @@ jobs:
           : > "$MANIFEST"
           echo "# PECL build manifest for PHP $VER on ${{ matrix.target }}" >> "$MANIFEST"
           echo "# generated $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$MANIFEST"
+          # verify_pecl_tgz — upstream integrity check before extraction.
+          # PECL does NOT publish SHA256 or MD5 for the .tgz download itself
+          # (the per-file md5sum attrs inside package.<ver>.xml cover archive
+          # contents post-extract, not the tgz bytes). The best upstream
+          # integrity signal we have is the <f> (filesize) field exposed by
+          # the PEAR REST API at /rest/r/<pkg>/<ver>.xml. We cross-check:
+          #   1. Downloaded file is >= 1 KB  (catches empty/truncated responses)
+          #   2. Magic bytes are 1F 8B      (catches HTML-as-tgz / PECL 5xx)
+          #   3. Byte size matches REST <f> (catches partial/swapped payloads)
+          # If REST metadata is unreachable we fall back to (1)+(2) and log
+          # `no_upstream_hash` in the manifest so ops can audit which builds
+          # ran without the cross-check. Upgrade to SHA256 requires upstream
+          # PECL to publish per-release digests — tracked in SECURITY.md.
+          verify_pecl_tgz() {
+            local name=$1; local ver=$2; local path=$3
+            # (1) size floor
+            local actual_size
+            actual_size=$(wc -c < "$path" 2>/dev/null || echo 0)
+            if [ "$actual_size" -lt 1024 ]; then
+              echo "::error::PECL $name-$ver downloaded tgz is $actual_size bytes (< 1 KB floor) — likely error page"
+              return 1
+            fi
+            # (2) magic bytes (gzip = 1F 8B)
+            local magic
+            magic=$(head -c 2 "$path" | od -An -tx1 | tr -d ' \n')
+            if [ "$magic" != "1f8b" ]; then
+              echo "::error::PECL $name-$ver tgz magic=0x$magic (expected 0x1f8b gzip) — not a tarball"
+              return 2
+            fi
+            # (3) cross-check with PECL REST <f> filesize
+            local expected_size
+            expected_size=$(curl -fsSL --max-time 15 "https://pecl.php.net/rest/r/${name}/${ver}.xml" 2>/dev/null \
+              | grep -oE '<f>[0-9]+</f>' | grep -oE '[0-9]+' | head -1)
+            if [ -z "$expected_size" ]; then
+              echo "::warning::PECL $name-$ver: REST /rest/r/${name}/${ver}.xml has no <f> filesize — upstream hash/size unavailable"
+              # Record manifest line so audit can see which builds ran without cross-check.
+              echo "WARN $name $ver no_upstream_hash" >> "$MANIFEST"
+              return 0
+            fi
+            if [ "$actual_size" != "$expected_size" ]; then
+              echo "::error::PECL $name-$ver size mismatch: got $actual_size bytes, PECL REST reports $expected_size"
+              return 3
+            fi
+            echo "verify ok: $name-$ver size=$actual_size bytes, magic=0x$magic"
+            return 0
+          }
           install_pecl_ext() {
             local name=$1; local ver=$2; local extra=$3
             if [ -z "$ver" ]; then
@@ -395,6 +441,7 @@ jobs:
               cd /tmp
               rm -rf "${name}-${ver}" && mkdir -p "${name}-build" && cd "${name}-build"
               curl -fsSL -o ext.tgz "https://pecl.php.net/get/${name}-${ver}.tgz" || exit 10
+              verify_pecl_tgz "$name" "$ver" ext.tgz || exit 17
               tar xzf ext.tgz || exit 11
               cd "${name}-${ver}" 2>/dev/null || cd "${name}" || exit 12
               "$PREFIX/bin/phpize" || exit 13
@@ -417,6 +464,7 @@ jobs:
               14) reason="configure" ;;
               15) reason="make" ;;
               16) reason="install" ;;
+              17) reason="hash_mismatch" ;;
               *)  reason="rc=$rc" ;;
             esac
             echo "FAIL $name $ver $reason" >> "$MANIFEST"
