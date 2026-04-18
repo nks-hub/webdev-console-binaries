@@ -437,7 +437,14 @@ jobs:
             bin sbin lib include etc
           ls -lh "${{ github.workspace }}/php-${VER}-${{ matrix.target }}.tar.xz"
 
+      # Skip entire upload when no archive was produced for this matrix slot
+      # (e.g., PHP 5.6 on macOS/linux where skip_source=true). Windows always
+      # has a pre-built archive, so it uploads unconditionally. Keeping the
+      # skip logic on the step-level `if:` lets fail_on_unmatched_files stay
+      # a static `true` — no string coercion of GitHub Actions expression
+      # booleans inside an action input.
       - name: Upload to release
+        if: matrix.target == 'windows-x64' || env.skip_source != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: binaries-php-${{ steps.ver.outputs.version }}
@@ -446,9 +453,7 @@ jobs:
             Self-contained PHP ${{ steps.ver.outputs.version }} binaries for use with
             NKS WebDev Console's `wdc binaries install` flow.
             Each archive expands to `bin/php`, `sbin/php-fpm` and supporting libs.
-          # skip_source=true → no archive produced for this matrix slot, so
-          # don't insist on matching files (e.g., PHP 5.6 macOS).
-          fail_on_unmatched_files: ${{ env.skip_source != 'true' || matrix.target == 'windows-x64' }}
+          fail_on_unmatched_files: true
           files: php-${{ steps.ver.outputs.version }}-${{ matrix.target }}.${{ matrix.ext }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
