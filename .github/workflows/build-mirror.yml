@@ -293,6 +293,10 @@ jobs:
           name: ${{ steps.ver.outputs.app }} ${{ steps.ver.outputs.version }} (cross-platform binaries)
           body: |
             Mirror of upstream **${{ steps.ver.outputs.app }} ${{ steps.ver.outputs.version }}** for use with NKS WebDev Console's `wdc binaries install` flow. File naming follows the catalog's `${app}-${version}-${os}-${arch}` convention so the daemon's `BinaryDownloader` can resolve URLs without per-app special cases.
+
+            **Linux/macOS**: after downloading + extracting, run `chmod +x <binary>` —
+            GitHub release assets do not preserve Unix mode bits (0755 → 0644 on upload).
+            The daemon's downloader handles this automatically; manual downloads need the chmod.
           fail_on_unmatched_files: true
           files: ${{ steps.download.outputs.files }}
         env:

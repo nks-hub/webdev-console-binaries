@@ -163,6 +163,12 @@ jobs:
           name: MariaDB ${{ steps.ver.outputs.version }} (cross-platform binaries)
           body: |
             Mirror of [MariaDB ${{ steps.ver.outputs.version }}](https://mariadb.org/download/?t=mariadb&p=mariadb&r=${{ steps.ver.outputs.version }}) for use with NKS WebDev Console's `wdc binaries install mariadb@${{ steps.ver.outputs.version }}` flow.
+
+            **Linux/macOS**: after extracting the archive, run `chmod +x bin/*` —
+            GitHub release tarballs preserve mode bits, but if the archive was
+            repackaged or assets re-uploaded, Unix mode bits may be lost
+            (0755 → 0644). The daemon's downloader handles this automatically;
+            manual extraction may need the chmod.
           fail_on_unmatched_files: true
           files: ${{ steps.download.outputs.files }}
         env:

@@ -65,6 +65,10 @@ jobs:
           name: mkcert ${{ steps.ver.outputs.version }} (cross-platform binaries)
           body: |
             Mirror of [FiloSottile/mkcert ${{ steps.ver.outputs.version }}](https://github.com/FiloSottile/mkcert/releases/tag/v${{ steps.ver.outputs.version }}) for use with NKS WebDev Console's `wdc binaries install` flow. Naming matches the catalog's `${app}-${version}-${os}-${arch}` convention.
+
+            **Linux/macOS**: after downloading, run `chmod +x <binary>` —
+            GitHub release assets do not preserve Unix mode bits (0755 → 0644 on upload).
+            The daemon's downloader handles this automatically; manual downloads need the chmod.
           fail_on_unmatched_files: false
           files: |
             mkcert-${{ steps.ver.outputs.version }}-*
