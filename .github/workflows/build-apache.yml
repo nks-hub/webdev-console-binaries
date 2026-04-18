@@ -181,15 +181,35 @@ jobs:
         shell: bash
         run: |
           VER="${{ steps.ver.outputs.version }}"
-          cd "${{ github.workspace }}/install/httpd-${VER}"
+          STAGE="${{ github.workspace }}/install/httpd-${VER}"
+          cd "$STAGE"
           # Apache install layout doesn't include sbin or lib by default — bin/ holds
           # both httpd and helper tools, modules/ holds the .so MPM/extensions, conf/
           # holds httpd.conf + extra/. Skip sbin/lib since they're empty/missing.
           ls -d */ 2>&1 | head
+
+          # Trim bloat + state-leak risk before tarring (HIGH-A3):
+          #   manual/  — ~4 MB of HTML docs; WDC consumers don't need them.
+          #   logs/    — FHS runtime dir; daemon mkdir's at startup. Shipping a
+          #              pre-created logs/ risks leaking any access_log written
+          #              by broken CI tests. Scrub files first, then drop dir.
+          #   cgi-bin/ — empty default; daemon recreates if ever needed.
+          #   icons/   — stock Apache directory-listing icons, not referenced
+          #              by WDC-generated vhosts.
+          # Kept: bin (daemon), conf (default templates), modules (.so),
+          #       htdocs (fallback welcome page for bin/httpd first-start).
+          if [ -d "$STAGE/logs" ]; then
+            find "$STAGE/logs" -type f -delete
+          fi
+          rm -rf "$STAGE/manual" "$STAGE/logs" "$STAGE/cgi-bin" "$STAGE/icons"
+
           tar -cJf "${{ github.workspace }}/httpd-${VER}-${{ matrix.target }}.tar.xz" \
-            bin include modules conf $(ls -d build error htdocs icons logs man manual cgi-bin 2>/dev/null) \
+            bin include modules conf $(ls -d build error htdocs man 2>/dev/null) \
             $(test -d sbin && echo sbin) $(test -d lib && echo lib)
           ls -lh "${{ github.workspace }}/httpd-${VER}-${{ matrix.target }}.tar.xz"
+          # Top-level contents visibility — future broken-test state leaks
+          # (rogue files dropped into $STAGE) will show up in CI logs here.
+          tar -tf "${{ github.workspace }}/httpd-${VER}-${{ matrix.target }}.tar.xz" | head -30
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
