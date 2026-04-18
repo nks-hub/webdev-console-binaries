@@ -53,10 +53,24 @@ jobs:
           echo "Mirroring $APP $VERSION"
 
       - name: Download per-app upstream artifacts
+        id: download
         shell: bash
         run: |
+          set -euo pipefail
           APP="${{ steps.ver.outputs.app }}"
           VER="${{ steps.ver.outputs.version }}"
+
+          # Scrub any transient archives that would otherwise leak into the
+          # upload step as dead-weight duplicates of the extracted bare
+          # binaries. See HIGH-D1 in docs/reviews/2026-04-18-binaries-repo-deep-review.md.
+          rm -f ./*.tgz ./*.tar.gz ./*.zip
+          rm -f cloudflared-*-macos-x64.tgz cloudflared-*-macos-arm64.tgz
+          rm -f darwin-amd64.tgz darwin-arm64.tgz
+
+          # Cross-platform upload list built per-case so we enumerate only
+          # the final named assets (never transient .tgz workspace state).
+          ASSETS=()
+
           case "$APP" in
             caddy)
               # caddyserver/caddy releases — tar.gz for unix, zip for windows
@@ -64,6 +78,11 @@ jobs:
               curl -fsSL -o "caddy-${VER}-linux-x64.tar.gz"   "${BASE}/caddy_${VER}_linux_amd64.tar.gz"
               curl -fsSL -o "caddy-${VER}-macos-arm64.tar.gz" "${BASE}/caddy_${VER}_mac_arm64.tar.gz"
               curl -fsSL -o "caddy-${VER}-windows-x64.zip"    "${BASE}/caddy_${VER}_windows_amd64.zip"
+              ASSETS+=(
+                "caddy-${VER}-linux-x64.tar.gz"
+                "caddy-${VER}-macos-arm64.tar.gz"
+                "caddy-${VER}-windows-x64.zip"
+              )
               ;;
             cloudflared)
               # cloudflare/cloudflared. Linux + Windows ship as single static
@@ -71,14 +90,35 @@ jobs:
               BASE="https://github.com/cloudflare/cloudflared/releases/download/${VER}"
               curl -fsSL -o "cloudflared-${VER}-linux-x64"       "${BASE}/cloudflared-linux-amd64"
               curl -fsSL -o "cloudflared-${VER}-linux-arm64"     "${BASE}/cloudflared-linux-arm64"
-              # Both macOS arches ship as tgz; extract single binary out so
-              # naming matches the daemon's expected ${app}-${ver}-${os}-${arch} pattern.
-              curl -fsSL -o "darwin-amd64.tgz" "${BASE}/cloudflared-darwin-amd64.tgz"
-              tar xzf darwin-amd64.tgz && mv cloudflared "cloudflared-${VER}-macos-x64" && rm darwin-amd64.tgz
-              curl -fsSL -o "darwin-arm64.tgz" "${BASE}/cloudflared-darwin-arm64.tgz" || true
-              [ -f darwin-arm64.tgz ] && tar xzf darwin-arm64.tgz && mv cloudflared "cloudflared-${VER}-macos-arm64" && rm darwin-arm64.tgz
               curl -fsSL -o "cloudflared-${VER}-windows-x64.exe" "${BASE}/cloudflared-windows-amd64.exe"
-              chmod +x cloudflared-${VER}-linux-x64 cloudflared-${VER}-linux-arm64 cloudflared-${VER}-macos-x64 cloudflared-${VER}-macos-arm64 2>/dev/null || true
+
+              # Both macOS arches ship as tgz; extract single binary out so
+              # naming matches the daemon's expected ${app}-${ver}-${os}-${arch}
+              # pattern. The intermediate .tgz is deleted immediately after
+              # extraction so it cannot leak into the upload step.
+              extract_darwin() {
+                local arch_in="$1" arch_out="$2" tgz="darwin-${arch_in}.tgz"
+                curl -fsSL -o "$tgz" "${BASE}/cloudflared-darwin-${arch_in}.tgz"
+                tar xzf "$tgz"
+                mv cloudflared "cloudflared-${VER}-macos-${arch_out}"
+                rm -f "$tgz"
+              }
+              extract_darwin amd64 x64
+              extract_darwin arm64 arm64
+
+              chmod +x \
+                "cloudflared-${VER}-linux-x64" \
+                "cloudflared-${VER}-linux-arm64" \
+                "cloudflared-${VER}-macos-x64" \
+                "cloudflared-${VER}-macos-arm64"
+
+              ASSETS+=(
+                "cloudflared-${VER}-linux-x64"
+                "cloudflared-${VER}-linux-arm64"
+                "cloudflared-${VER}-macos-x64"
+                "cloudflared-${VER}-macos-arm64"
+                "cloudflared-${VER}-windows-x64.exe"
+              )
               ;;
             mailpit)
               # axllent/mailpit — tar.gz per platform with bin inside
@@ -86,11 +126,35 @@ jobs:
               curl -fsSL -o "mailpit-${VER}-linux-x64.tar.gz"   "${BASE}/mailpit-linux-amd64.tar.gz"
               curl -fsSL -o "mailpit-${VER}-macos-arm64.tar.gz" "${BASE}/mailpit-darwin-arm64.tar.gz"
               curl -fsSL -o "mailpit-${VER}-windows-x64.zip"    "${BASE}/mailpit-windows-amd64.zip"
+              ASSETS+=(
+                "mailpit-${VER}-linux-x64.tar.gz"
+                "mailpit-${VER}-macos-arm64.tar.gz"
+                "mailpit-${VER}-windows-x64.zip"
+              )
               ;;
             *)
               echo "Unknown app: $APP"; exit 1 ;;
           esac
-          ls -lh ${APP}-${VER}-* 2>/dev/null
+
+          # Verify every declared asset exists + is non-empty before we let
+          # the upload step see the workspace. Fail loud if the case above
+          # skipped one.
+          for f in "${ASSETS[@]}"; do
+            if [ ! -s "$f" ]; then
+              echo "::error::expected asset missing or empty: $f"
+              exit 1
+            fi
+          done
+
+          # Publish newline-separated list for the upload step.
+          {
+            echo 'files<<EOF'
+            printf '%s\n' "${ASSETS[@]}"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Final asset set:"
+          ls -lh "${ASSETS[@]}"
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
@@ -99,8 +163,7 @@ jobs:
           name: ${{ steps.ver.outputs.app }} ${{ steps.ver.outputs.version }} (cross-platform binaries)
           body: |
             Mirror of upstream **${{ steps.ver.outputs.app }} ${{ steps.ver.outputs.version }}** for use with NKS WebDev Console's `wdc binaries install` flow. File naming follows the catalog's `${app}-${version}-${os}-${arch}` convention so the daemon's `BinaryDownloader` can resolve URLs without per-app special cases.
-          fail_on_unmatched_files: false
-          files: |
-            ${{ steps.ver.outputs.app }}-${{ steps.ver.outputs.version }}-*
+          fail_on_unmatched_files: true
+          files: ${{ steps.download.outputs.files }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
