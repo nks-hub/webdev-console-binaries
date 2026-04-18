@@ -262,6 +262,19 @@ jobs:
           body: |
             Self-contained Nginx ${{ steps.ver.outputs.version }} binaries for use
             with NKS WebDev Console's `wdc binaries install nginx@${{ steps.ver.outputs.version }}`.
+
+            **Per-target build notes**:
+            - **linux-x64**: built from nginx.org source with HTTP/2, SSL, stream,
+              mail, PCRE-JIT. Runtime `.so` deps (libssl, libcrypto, libpcre2, libz)
+              bundled under `lib/` with RPATH `$ORIGIN/../lib`. glibc floor is
+              ubuntu-24.04.
+            - **macos-arm64**: built from nginx.org source with the same module
+              set as Linux. Homebrew dylibs (pcre2, openssl@3, zlib) bundled under
+              `lib/` with `@executable_path/../lib` install names (PR #18).
+            - **windows-x64**: nginx.org's prebuilt stable ZIP. No HTTP/3,
+              no ngx_brotli, no SSE4-optimized PCRE. Fine for WDC's local-dev
+              use case; if you need HTTP/3 or brotli, use a Linux or macOS
+              build and point the daemon at the WSL2 copy.
           fail_on_unmatched_files: true
           files: nginx-${{ steps.ver.outputs.version }}-${{ matrix.target }}.${{ matrix.ext }}
         env:
