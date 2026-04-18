@@ -56,7 +56,7 @@ jobs:
       # .github/workflows/assets/icu-config-shim.sh from the bind-mounted
       # /work inside the ubuntu:20.04 docker. Negligible cost (<1 s) on
       # Windows/macOS slots that don't use the shim.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Set SOURCE_DATE_EPOCH (reproducibility)
         shell: bash
@@ -612,7 +612,7 @@ jobs:
       # booleans inside an action input.
       - name: Upload to release
         if: matrix.target == 'windows-x64' || env.skip_source != 'true'
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3.0.0
         with:
           tag_name: binaries-php-${{ steps.ver.outputs.version }}
           name: PHP ${{ steps.ver.outputs.version }} (cross-platform binaries)
@@ -629,7 +629,7 @@ jobs:
       # Upload PECL manifest only for non-Windows slots (Windows build doesn't run install_pecl_ext).
       - name: Upload PECL manifest
         if: matrix.target != 'windows-x64' && env.skip_source != 'true'
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3.0.0
         with:
           tag_name: binaries-php-${{ steps.ver.outputs.version }}
           fail_on_unmatched_files: true
@@ -669,7 +669,7 @@ jobs:
 
       - name: Upload SKIPPED marker to release
         if: matrix.target != 'windows-x64' && env.skip_source == 'true'
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3.0.0
         with:
           tag_name: binaries-php-${{ steps.ver.outputs.version }}
           name: PHP ${{ steps.ver.outputs.version }} (cross-platform binaries)
