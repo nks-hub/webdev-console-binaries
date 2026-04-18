@@ -636,3 +636,48 @@ jobs:
           files: pecl-build-manifest-${{ matrix.target }}.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # When skip_source=true (PHP 5.6/7.0 on Linux/macOS), the main upload
+      # step above is skipped entirely. Without any signal on the release,
+      # a user running `gh release view binaries-php-7.0.33` sees only the
+      # Windows zip and can't tell whether Linux was tried-and-failed or
+      # intentionally omitted. Upload an explicit SKIPPED-<target>.txt
+      # marker so the omission is self-documenting on the release page.
+      - name: Write SKIPPED marker (skip_source=true)
+        if: matrix.target != 'windows-x64' && env.skip_source == 'true'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          TGT="${{ matrix.target }}"
+          MARK="${{ github.workspace }}/SKIPPED-${TGT}-${VER}.txt"
+          cat > "$MARK" <<EOF
+          SKIPPED — PHP ${VER} on ${TGT} is not built from source in this workflow.
+
+          Reason: PHP versions before 7.1 have PECL / autoconf / libxml2 / ICU
+          toolchain drift (ICU 66+ C++17 ABI, libxml2 2.13+ API changes, OpenSSL
+          1.1 vs 3.x) that is prohibitive to maintain in hosted CI runners.
+
+          Options for this PHP version on this platform:
+            - Use the Windows prebuilt (windows.php.net) if you only need Win.
+            - Build from source locally with a pinned legacy toolchain.
+            - Upgrade to PHP 7.4+ where cross-platform source builds are CI-stable.
+
+          Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          Commit:   ${{ github.sha }}
+          EOF
+          ls -l "$MARK"
+
+      - name: Upload SKIPPED marker to release
+        if: matrix.target != 'windows-x64' && env.skip_source == 'true'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: binaries-php-${{ steps.ver.outputs.version }}
+          name: PHP ${{ steps.ver.outputs.version }} (cross-platform binaries)
+          body: |
+            Self-contained PHP ${{ steps.ver.outputs.version }} binaries for use with
+            NKS WebDev Console's `wdc binaries install` flow.
+            Each archive expands to `bin/php`, `sbin/php-fpm` and supporting libs.
+          fail_on_unmatched_files: true
+          files: SKIPPED-${{ matrix.target }}-${{ steps.ver.outputs.version }}.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
