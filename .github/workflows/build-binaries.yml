@@ -87,6 +87,26 @@ jobs:
           done
           [ -z "$URL" ] && { echo "No Windows ZIP found for $VER"; exit 1; }
           curl -fsSL -o php-${VER}-windows-x64.zip "$URL"
+          # ── Supply-chain verification: windows.php.net publishes a combined
+          # sha256sum.txt per directory (releases/ or archives/). Fetch it,
+          # grep the filename, compare against local hash. Abort build on
+          # mismatch or missing entry — don't ship an unverified upstream ZIP.
+          # TODO(SECURITY.md roadmap): additionally verify GPG .asc signature
+          # once the PHP release-manager keyring is bootstrapped into CI.
+          ZIP_NAME="php-${VER}-nts-Win32-${VS}-x64.zip"
+          SUMS_URL="https://windows.php.net/downloads/releases/${SUBDIR}sha256sum.txt"
+          curl -fsSL "$SUMS_URL" -o win-sha256sum.txt
+          expected=$(awk -v f="$ZIP_NAME" '$2 == "*"f {print $1}' win-sha256sum.txt)
+          if [ -z "$expected" ]; then
+            echo "::error::$ZIP_NAME not found in $SUMS_URL" >&2
+            exit 1
+          fi
+          actual=$(sha256sum "php-${VER}-windows-x64.zip" | awk '{print $1}')
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::SHA256 mismatch for $ZIP_NAME — expected $expected, got $actual" >&2
+            exit 1
+          fi
+          echo "✓ SHA256 verified ($ZIP_NAME): $actual"
           ls -lh php-${VER}-windows-x64.zip
 
       # ── Linux/macOS: build from source ──
@@ -156,6 +176,21 @@ jobs:
           VER="${{ steps.ver.outputs.version }}"
           PREFIX="${{ github.workspace }}/install/php-${VER}"
           mkdir -p "$PREFIX"
+          # ── Supply-chain verification: download + verify on the host runner
+          # BEFORE entering the minimal docker container (ubuntu:20.04 lacks
+          # jq/python3 by default, and we shouldn't install extra tools just
+          # for hash lookup). Mount the verified tarball into the container.
+          # TODO(SECURITY.md roadmap): additionally verify GPG .asc signature
+          # once the PHP release-manager keyring is bootstrapped into CI.
+          curl -fsSL "https://www.php.net/distributions/php-${VER}.tar.xz" -o php-src.tar.xz
+          curl -fsSL "https://www.php.net/releases/?json&version=${VER}" -o php-release.json
+          expected=$(python3 -c "import json,sys; d=json.load(open('php-release.json')); print(next(s['sha256'] for s in d['source'] if s['filename']==f'php-${VER}.tar.xz'))")
+          actual=$(sha256sum php-src.tar.xz | awk '{print $1}')
+          if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+            echo "::error::SHA256 mismatch for php-${VER}.tar.xz — expected '$expected', got '$actual'" >&2
+            exit 1
+          fi
+          echo "✓ SHA256 verified (php-${VER}.tar.xz): $actual"
           docker run --rm -v "${{ github.workspace }}:/work" -w /work ubuntu:20.04 bash -c "
             set -e
             export DEBIAN_FRONTEND=noninteractive
@@ -188,7 +223,9 @@ jobs:
               'esac' > /usr/local/bin/icu-config
             chmod +x /usr/local/bin/icu-config
             cat /usr/local/bin/icu-config
-            curl -fsSL -o /tmp/php-src.tar.xz https://www.php.net/distributions/php-${VER}.tar.xz
+            # Use the host-verified tarball mounted from the workspace (sha256
+            # already checked against PHP.net /releases/?json manifest).
+            cp /work/php-src.tar.xz /tmp/php-src.tar.xz
             cd /tmp && tar xf php-src.tar.xz && cd php-${VER}
             ./configure --prefix=/work/install/php-${VER} \
               --enable-fpm --enable-mbstring --enable-bcmath --enable-soap \
@@ -256,7 +293,21 @@ jobs:
         shell: bash
         run: |
           VER="${{ steps.ver.outputs.version }}"
-          curl -fsSL -o php-src.tar.xz https://www.php.net/distributions/php-${VER}.tar.xz
+          curl -fsSL -o php-src.tar.xz "https://www.php.net/distributions/php-${VER}.tar.xz"
+          # ── Supply-chain verification: PHP.net exposes per-release hashes
+          # via the JSON API at /releases/?json&version=X.Y.Z (works for both
+          # supported releases and museum/archived ones). Extract the expected
+          # sha256 for the .tar.xz entry and compare with `sha256sum`.
+          # TODO(SECURITY.md roadmap): additionally verify GPG .asc signature
+          # once the PHP release-manager keyring is bootstrapped into CI.
+          curl -fsSL "https://www.php.net/releases/?json&version=${VER}" -o php-release.json
+          expected=$(python3 -c "import json,sys; d=json.load(open('php-release.json')); print(next(s['sha256'] for s in d['source'] if s['filename']==f'php-${VER}.tar.xz'))")
+          actual=$(sha256sum php-src.tar.xz | awk '{print $1}')
+          if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+            echo "::error::SHA256 mismatch for php-${VER}.tar.xz — expected '$expected', got '$actual'" >&2
+            exit 1
+          fi
+          echo "✓ SHA256 verified (php-${VER}.tar.xz): $actual"
           tar xf php-src.tar.xz
           cd php-${VER}
           PREFIX="${{ github.workspace }}/install/php-${VER}"
