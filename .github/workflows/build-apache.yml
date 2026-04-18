@@ -162,10 +162,28 @@ jobs:
             BROTLI_FLAGS="--enable-brotli"
             MD_FLAGS=""
           fi
+          # Module selection rationale:
+          #   --enable-mods-shared=most ships virtually every production module
+          #   (auth*, proxy*, ssl, rewrite, headers, deflate, cache*, dav*, md,
+          #   session*, socache_shmcb, lua, http2, brotli, vhost_alias, etc.)
+          #   but EXCLUDES demo/test modules that "reallyall" would pull in:
+          #     mod_example_hooks, mod_bucketeer, mod_case_filter,
+          #     mod_case_filter_in, mod_echo, mod_dialup,
+          #     mod_optional_hook_export, mod_optional_hook_import,
+          #     mod_optional_fn_export, mod_optional_fn_import,
+          #     mod_firehose, mod_auth_form, mod_cache_socache
+          #   None of these are referenced by WDC vhost templates or common
+          #   LAMP/FPM site configs; shipping them is pure bloat + attack
+          #   surface (users can't disable-at-install on a precompiled tree).
+          # Explicit flags below are belt-and-suspenders for modules that are
+          # load-bearing for WDC's PHP-FPM proxy path, SSL, and MPM selection
+          # — "most" already enables these but we pin them so a future
+          # upstream rename of the "most" preset can't silently drop them.
           ./configure --prefix="$PREFIX" \
             --enable-so --enable-ssl --enable-rewrite --enable-proxy \
             --enable-proxy-fcgi --enable-proxy-http --enable-proxy-balancer \
-            --enable-proxy-wstunnel --enable-headers --enable-deflate \
+            --enable-proxy-wstunnel --enable-proxy-connect \
+            --enable-headers --enable-deflate \
             --enable-expires --enable-mime-magic --enable-vhost-alias \
             --enable-cgi --enable-cgid --enable-info --enable-status \
             --enable-md --enable-remoteip \
@@ -173,11 +191,13 @@ jobs:
             --enable-macro --enable-ratelimit --enable-substitute \
             --enable-unique-id --enable-log-forensic --enable-dumpio \
             --enable-dav --enable-dav-fs --enable-dav-lock \
-            --enable-cache --enable-cache-disk --enable-cache-socache \
+            --enable-cache --enable-cache-disk \
             --enable-socache-shmcb --enable-socache-memcache --enable-socache-redis \
             --enable-lua --enable-watchdog --enable-buffer --enable-reqtimeout \
             --enable-authn-socache --enable-authnz-fcgi \
-            --enable-mods-shared=reallyall \
+            --enable-mods-shared=most \
+            --enable-mpms-shared=event \
+            --with-mpm=event \
             $HTTP2_FLAGS $BROTLI_FLAGS $MD_FLAGS \
             $APR_FLAGS $SSL_FLAGS $PCRE_FLAGS $EXTRA_FLAGS
           make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) 2>&1 | tail -10
