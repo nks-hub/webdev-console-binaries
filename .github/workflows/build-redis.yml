@@ -164,6 +164,34 @@ jobs:
           make PREFIX="$PREFIX" install
           ls "$PREFIX/bin/" | head -10
 
+      # Ship the stock redis.conf + sentinel.conf from the upstream source tree
+      # into the install prefix root. `make install` only drops binaries into
+      # bin/ — it never copies the template configs. Without these, a fresh
+      # `wdc binaries install redis@X.Y.Z` produces ~/.wdc/binaries/redis/<ver>/
+      # with bin/ only, no conf files. The daemon's service-config UI then
+      # shows an empty state (see LOW-G2 in 2026-04-18 binaries review) and
+      # `redis-server` starts with built-in defaults (bind all interfaces, no
+      # auth). The daemon validates redis.conf but does NOT generate one, so
+      # the tarball must ship the template.
+      - name: Linux/macOS — stage stock redis.conf + sentinel.conf
+        if: matrix.target != 'windows-x64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="${{ steps.ver.outputs.version }}"
+          SRC_ROOT="${{ github.workspace }}/redis-${VER}"
+          STAGE="${{ github.workspace }}/install/redis-${VER}"
+          for cfg in redis.conf sentinel.conf; do
+            if [ -f "$SRC_ROOT/$cfg" ]; then
+              cp "$SRC_ROOT/$cfg" "$STAGE/$cfg"
+              echo "Shipped $cfg from $SRC_ROOT → $STAGE/"
+            else
+              echo "::warning::$cfg not found in $SRC_ROOT — daemon will use built-in defaults"
+            fi
+          done
+          # Audit trail for the workflow run log.
+          ls -la "$STAGE"/*.conf || true
+
       # Linux produces dynamically linked redis-server/redis-cli/etc. that pull
       # in libssl.so.3, libcrypto.so.3 (BUILD_TLS=yes) from the CI runner's
       # /usr/lib. A user on Debian/Alpine/Arch/RHEL/Fedora hits `libssl.so.3:
@@ -221,6 +249,12 @@ jobs:
           if [ -d lib ]; then
             PKG_DIRS="$PKG_DIRS lib"
           fi
+          # Include stock redis.conf / sentinel.conf if they were staged above
+          # (LOW-G2). Globbing through shell so tar receives explicit paths,
+          # not a literal '*.conf' if none exist.
+          for cfg in redis.conf sentinel.conf; do
+            [ -f "$cfg" ] && PKG_DIRS="$PKG_DIRS $cfg"
+          done
           # Deterministic tar: GNU tar on Linux, gtar on macOS (BSD tar lacks
           # --sort / --pax-option). SOURCE_DATE_EPOCH pins mtime across reruns.
           if [ "${{ matrix.target }}" = "macos-arm64" ]; then
