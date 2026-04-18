@@ -85,14 +85,22 @@ jobs:
           # at https://archive.mariadb.org/mariadb-${VER}/winx64-packages/
           LINUX_DIR=""
           LINUX_NAME=""
+          # Log which bintar variant actually won the fallback chain so the
+          # shipped artifact's systemd-vs-plain provenance is auditable from
+          # the workflow run log (MEDIUM-C3 fix). The systemd-bintar has a
+          # hard dependency on host systemd; the plain-bintar works on musl /
+          # non-systemd hosts. Knowing which one shipped matters when a user
+          # reports "fails to start" on Alpine / distroless.
           if curl -fsSL -o "mariadb-${VER}-linux-x64.tar.gz" \
                "${BASE}-linux-systemd-x86_64/mariadb-${VER}-linux-systemd-x86_64.tar.gz"; then
             LINUX_DIR="${BASE}-linux-systemd-x86_64"
             LINUX_NAME="mariadb-${VER}-linux-systemd-x86_64.tar.gz"
+            echo "::notice::mariadb ${VER} linux source: systemd-bintar (${LINUX_DIR})"
           elif curl -fsSL -o "mariadb-${VER}-linux-x64.tar.gz" \
                  "${BASE}-linux-x86_64/mariadb-${VER}-linux-x86_64.tar.gz"; then
             LINUX_DIR="${BASE}-linux-x86_64"
             LINUX_NAME="mariadb-${VER}-linux-x86_64.tar.gz"
+            echo "::notice::mariadb ${VER} linux source: plain-bintar (systemd fallback — ${LINUX_DIR})"
           fi
           if [ -n "$LINUX_NAME" ]; then
             verify_sha256 "mariadb-${VER}-linux-x64.tar.gz" "${LINUX_DIR}/sha256sums.txt" "$LINUX_NAME"

@@ -61,13 +61,34 @@ jobs:
           VER="${{ steps.ver.outputs.version }}"
           # tporadowski/redis is the most-active maintained Windows fork (as of 2026)
           # tags use Redis-X.Y.Z naming.
+          # Log which fork URL won the fallback chain so the shipped
+          # Windows zip's provenance is auditable from the workflow run log
+          # (MEDIUM-G1 fix). tporadowski/redis last tagged v5.0.14.1 (2022)
+          # so modern Redis (7.x+) falls through to redis-windows/redis-windows.
+          # Without this notice there is no evidence trail telling us which
+          # fork built the uploaded zip.
+          PICKED_URL=""
           for URL in \
             "https://github.com/tporadowski/redis/releases/download/v${VER}/Redis-x64-${VER}.zip" \
             "https://github.com/redis-windows/redis-windows/releases/download/${VER}/Redis-${VER}-Windows-x64-msys2-with-Service.zip"; do
             if curl -fsIL "$URL" >/dev/null 2>&1; then
-              curl -fsSL -o "redis-${VER}-windows-x64.zip" "$URL"; break
+              curl -fsSL -o "redis-${VER}-windows-x64.zip" "$URL"
+              PICKED_URL="$URL"
+              break
             fi
           done
+          case "$PICKED_URL" in
+            *tporadowski/redis*)
+              echo "::notice::redis ${VER} windows source: tporadowski/redis (${PICKED_URL})"
+              ;;
+            *redis-windows/redis-windows*)
+              echo "::notice::redis ${VER} windows source: redis-windows/redis-windows (tporadowski fallback — ${PICKED_URL})"
+              ;;
+            "")
+              echo "::error::redis ${VER} windows: no fork URL reachable" >&2
+              exit 1
+              ;;
+          esac
           ls -lh "redis-${VER}-windows-x64.zip"
 
       # ── Linux + macOS: build from source ──
