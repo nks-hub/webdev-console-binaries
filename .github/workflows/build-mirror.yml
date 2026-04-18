@@ -65,6 +65,8 @@ jobs:
       - name: Download per-app upstream artifacts
         id: download
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           APP="${{ steps.ver.outputs.app }}"
@@ -77,17 +79,111 @@ jobs:
           rm -f cloudflared-*-macos-x64.tgz cloudflared-*-macos-arm64.tgz
           rm -f darwin-amd64.tgz darwin-arm64.tgz
 
+          # ── Supply-chain verification helpers (MEDIUM-D3).
+          # Mirror the pattern from build-mariadb.yml PR #9. Each upstream
+          # publishes integrity metadata in a slightly different shape:
+          #   caddy   → caddy_${VER}_checksums.txt (SHA-512, "hash  name")
+          #   mailpit → per-asset GitHub REST digest (no sidecar file)
+          #   cloudfl → per-asset GitHub REST digest (no sidecar file)
+          # Abort the build on mismatch; fall back to magic-byte + size-floor
+          # guards with ::warning::no_upstream_hash when the manifest/digest
+          # is genuinely unavailable (PR #12 PECL fallback pattern).
+
+          # _fake_file_guard: when no upstream hash is available, reject
+          # obviously poisoned payloads (HTML error page, truncated
+          # download). Mirrors the PR #2 Apache magic-byte approach + a
+          # conservative 50 KB size floor. Binaries and archives alike
+          # comfortably exceed this for these three apps.
+          _fake_file_guard() {
+            local file="$1"
+            local size
+            size=$(wc -c <"$file" | tr -d ' ')
+            if [ "${size:-0}" -lt 51200 ]; then
+              echo "::error::$file is ${size}B — below 50 KB size floor; refusing to ship unverified tiny payload" >&2
+              return 1
+            fi
+            local head4
+            head4=$(head -c 4 "$file" | xxd -p)
+            case "$file" in
+              *.tar.gz|*.tgz)
+                case "$head4" in 1f8b*) : ;; *) echo "::error::$file missing gzip magic (got ${head4})" >&2; return 1 ;; esac ;;
+              *.zip)
+                [ "$head4" = "504b0304" ] || { echo "::error::$file missing ZIP magic (got ${head4})" >&2; return 1; } ;;
+              *.exe)
+                case "$head4" in 4d5a*) : ;; *) echo "::error::$file missing PE/MZ magic (got ${head4})" >&2; return 1 ;; esac ;;
+            esac
+            echo "✓ $file magic-byte + size-floor guards passed (unverified upstream hash)"
+          }
+
+          # verify_from_sums: fetch a sums-manifest (space-separated
+          # "<hash>  <filename>" lines), look up the upstream filename,
+          # compare against local hash. $4 selects the hash tool
+          # (sha256sum | sha512sum) — caddy uses SHA-512.
+          verify_from_sums() {
+            local file="$1" sums_url="$2" upstream_name="$3" tool="${4:-sha256sum}"
+            local sums_file="upstream-sums.txt"
+            if ! curl -fsSL "$sums_url" -o "$sums_file"; then
+              echo "::warning::no_upstream_hash — $sums_url unreachable; $file shipped unverified" >&2
+              _fake_file_guard "$file" || return 1
+              return 0
+            fi
+            local expected
+            expected=$(awk -v f="$upstream_name" '$NF == f {print tolower($1); exit}' "$sums_file")
+            if [ -z "$expected" ]; then
+              echo "::warning::no_upstream_hash — $upstream_name not found in $sums_url; $file shipped unverified" >&2
+              _fake_file_guard "$file" || return 1
+              return 0
+            fi
+            local actual
+            actual=$("$tool" "$file" | awk '{print $1}')
+            if [ "$expected" != "$actual" ]; then
+              echo "::error::${tool} mismatch for $file (upstream $upstream_name) — expected $expected, got $actual" >&2
+              return 1
+            fi
+            echo "✓ ${tool} verified ($file via $upstream_name): $actual"
+          }
+
+          # verify_github_digest: mailpit + cloudflared don't ship sidecar
+          # hash files, but GitHub's REST API exposes a per-asset
+          # `digest: sha256:<hex>` field populated at upload time. Use `gh`
+          # to pull it and compare sha256sum locally.
+          verify_github_digest() {
+            local file="$1" repo="$2" tag="$3" upstream_name="$4"
+            local expected
+            expected=$(gh api "repos/${repo}/releases/tags/${tag}" \
+              --jq ".assets[] | select(.name==\"${upstream_name}\") | .digest" 2>/dev/null \
+              | sed -n 's/^sha256://p')
+            if [ -z "$expected" ]; then
+              echo "::warning::no_upstream_hash — GitHub digest missing for ${repo}@${tag}/${upstream_name}; $file shipped unverified" >&2
+              _fake_file_guard "$file" || return 1
+              return 0
+            fi
+            local actual
+            actual=$(sha256sum "$file" | awk '{print $1}')
+            if [ "$expected" != "$actual" ]; then
+              echo "::error::SHA256 mismatch for $file (GitHub digest ${repo}/${upstream_name}) — expected $expected, got $actual" >&2
+              return 1
+            fi
+            echo "✓ GitHub sha256 digest verified ($file via ${repo}/${upstream_name}): $actual"
+          }
+
           # Cross-platform upload list built per-case so we enumerate only
           # the final named assets (never transient .tgz workspace state).
           ASSETS=()
 
           case "$APP" in
             caddy)
-              # caddyserver/caddy releases — tar.gz for unix, zip for windows
+              # caddyserver/caddy releases — tar.gz for unix, zip for windows.
+              # Caddy publishes caddy_${VER}_checksums.txt at the release
+              # root containing SHA-512 for every published asset.
               BASE="https://github.com/caddyserver/caddy/releases/download/v${VER}"
+              SUMS="${BASE}/caddy_${VER}_checksums.txt"
               curl -fsSL -o "caddy-${VER}-linux-x64.tar.gz"   "${BASE}/caddy_${VER}_linux_amd64.tar.gz"
               curl -fsSL -o "caddy-${VER}-macos-arm64.tar.gz" "${BASE}/caddy_${VER}_mac_arm64.tar.gz"
               curl -fsSL -o "caddy-${VER}-windows-x64.zip"    "${BASE}/caddy_${VER}_windows_amd64.zip"
+              verify_from_sums "caddy-${VER}-linux-x64.tar.gz"   "$SUMS" "caddy_${VER}_linux_amd64.tar.gz" sha512sum
+              verify_from_sums "caddy-${VER}-macos-arm64.tar.gz" "$SUMS" "caddy_${VER}_mac_arm64.tar.gz"   sha512sum
+              verify_from_sums "caddy-${VER}-windows-x64.zip"    "$SUMS" "caddy_${VER}_windows_amd64.zip"  sha512sum
               ASSETS+=(
                 "caddy-${VER}-linux-x64.tar.gz"
                 "caddy-${VER}-macos-arm64.tar.gz"
@@ -97,18 +193,32 @@ jobs:
             cloudflared)
               # cloudflare/cloudflared. Linux + Windows ship as single static
               # binaries; macOS is a tarball that contains the binary.
-              BASE="https://github.com/cloudflare/cloudflared/releases/download/${VER}"
-              curl -fsSL -o "cloudflared-${VER}-linux-x64"       "${BASE}/cloudflared-linux-amd64"
-              curl -fsSL -o "cloudflared-${VER}-linux-arm64"     "${BASE}/cloudflared-linux-arm64"
-              curl -fsSL -o "cloudflared-${VER}-windows-x64.exe" "${BASE}/cloudflared-windows-amd64.exe"
+              # No sidecar .sha256 files on current releases; rely on
+              # GitHub's REST API per-asset digest field instead.
+              REPO="cloudflare/cloudflared"
+              TAG="${VER}"
+              BASE="https://github.com/${REPO}/releases/download/${TAG}"
 
-              # Both macOS arches ship as tgz; extract single binary out so
-              # naming matches the daemon's expected ${app}-${ver}-${os}-${arch}
-              # pattern. The intermediate .tgz is deleted immediately after
-              # extraction so it cannot leak into the upload step.
+              cf_fetch() {
+                local local_name="$1" upstream_name="$2"
+                curl -fsSL -o "$local_name" "${BASE}/${upstream_name}"
+                verify_github_digest "$local_name" "$REPO" "$TAG" "$upstream_name"
+              }
+              cf_fetch "cloudflared-${VER}-linux-x64"       "cloudflared-linux-amd64"
+              cf_fetch "cloudflared-${VER}-linux-arm64"     "cloudflared-linux-arm64"
+              cf_fetch "cloudflared-${VER}-windows-x64.exe" "cloudflared-windows-amd64.exe"
+
+              # Both macOS arches ship as tgz; verify the upstream tgz
+              # digest BEFORE extraction, then rename the single binary out
+              # so naming matches the daemon's expected
+              # ${app}-${ver}-${os}-${arch} pattern. The intermediate .tgz
+              # is deleted immediately after extraction so it cannot leak
+              # into the upload step.
               extract_darwin() {
                 local arch_in="$1" arch_out="$2" tgz="darwin-${arch_in}.tgz"
-                curl -fsSL -o "$tgz" "${BASE}/cloudflared-darwin-${arch_in}.tgz"
+                local upstream_name="cloudflared-darwin-${arch_in}.tgz"
+                curl -fsSL -o "$tgz" "${BASE}/${upstream_name}"
+                verify_github_digest "$tgz" "$REPO" "$TAG" "$upstream_name"
                 tar xzf "$tgz"
                 mv cloudflared "cloudflared-${VER}-macos-${arch_out}"
                 rm -f "$tgz"
@@ -131,11 +241,21 @@ jobs:
               )
               ;;
             mailpit)
-              # axllent/mailpit — tar.gz per platform with bin inside
-              BASE="https://github.com/axllent/mailpit/releases/download/v${VER}"
-              curl -fsSL -o "mailpit-${VER}-linux-x64.tar.gz"   "${BASE}/mailpit-linux-amd64.tar.gz"
-              curl -fsSL -o "mailpit-${VER}-macos-arm64.tar.gz" "${BASE}/mailpit-darwin-arm64.tar.gz"
-              curl -fsSL -o "mailpit-${VER}-windows-x64.zip"    "${BASE}/mailpit-windows-amd64.zip"
+              # axllent/mailpit — tar.gz per platform with bin inside.
+              # Mailpit doesn't publish a checksums.txt asset; rely on
+              # GitHub's REST API per-asset digest field.
+              REPO="axllent/mailpit"
+              TAG="v${VER}"
+              BASE="https://github.com/${REPO}/releases/download/${TAG}"
+
+              mp_fetch() {
+                local local_name="$1" upstream_name="$2"
+                curl -fsSL -o "$local_name" "${BASE}/${upstream_name}"
+                verify_github_digest "$local_name" "$REPO" "$TAG" "$upstream_name"
+              }
+              mp_fetch "mailpit-${VER}-linux-x64.tar.gz"   "mailpit-linux-amd64.tar.gz"
+              mp_fetch "mailpit-${VER}-macos-arm64.tar.gz" "mailpit-darwin-arm64.tar.gz"
+              mp_fetch "mailpit-${VER}-windows-x64.zip"    "mailpit-windows-amd64.zip"
               ASSETS+=(
                 "mailpit-${VER}-linux-x64.tar.gz"
                 "mailpit-${VER}-macos-arm64.tar.gz"
