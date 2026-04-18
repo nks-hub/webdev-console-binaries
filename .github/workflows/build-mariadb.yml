@@ -48,28 +48,105 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Download upstream binaries
+        id: download
         shell: bash
         run: |
           VER="${{ steps.ver.outputs.version }}"
           BASE="https://archive.mariadb.org/mariadb-${VER}/bintar"
+
+          # Track assets that were downloaded AND verified. Only these get
+          # enumerated to the upload step; fail_on_unmatched_files:true guards
+          # against any declared-but-missing file (build bug), while an
+          # optional target that upstream silently dropped (e.g. archive.mariadb.org
+          # not publishing bintar-osx_arm64 for some versions) is logged as a
+          # ::warning:: and simply omitted from the release — matching the
+          # existing tolerant matrix contract.
+          ASSETS=()
+
+          # ── Supply-chain verification helper: MariaDB publishes a
+          # sha256sums.txt per directory (format: "<hash>  ./<filename>").
+          # Fetch the manifest, grep the filename, compare with local hash.
+          # Abort the build on mismatch or missing entry — don't ship an
+          # unverified upstream artifact.
+          # TODO(SECURITY.md roadmap): additionally verify the accompanying
+          # sha256sums.txt.asc GPG signature once the MariaDB signing key
+          # is bootstrapped into CI.
+          verify_sha256() {
+            local file="$1" sums_url="$2" name="$3"
+            curl -fsSL "$sums_url" -o mdb-sha256sums.txt
+            local expected
+            expected=$(awk -v f="./${name}" '$2 == f {print tolower($1); exit}' mdb-sha256sums.txt)
+            if [ -z "$expected" ]; then
+              echo "::error::$name not found in $sums_url" >&2
+              return 1
+            fi
+            local actual
+            actual=$(sha256sum "$file" | awk '{print $1}')
+            if [ "$expected" != "$actual" ]; then
+              echo "::error::SHA256 mismatch for $name — expected $expected, got $actual" >&2
+              return 1
+            fi
+            echo "✓ SHA256 verified ($name): $actual"
+          }
+
           # mariadb.org publishes Linux glibc and macOS arm64; Windows is shipped
           # as a zero-install ZIP at https://archive.mariadb.org/mariadb-${VER}/winx64-packages/
-          curl -fsSL -o "mariadb-${VER}-linux-x64.tar.gz" \
-            "${BASE}-linux-systemd-x86_64/mariadb-${VER}-linux-systemd-x86_64.tar.gz" || \
-          curl -fsSL -o "mariadb-${VER}-linux-x64.tar.gz" \
-            "${BASE}-linux-x86_64/mariadb-${VER}-linux-x86_64.tar.gz"
+          LINUX_DIR=""
+          LINUX_NAME=""
+          if curl -fsSL -o "mariadb-${VER}-linux-x64.tar.gz" \
+               "${BASE}-linux-systemd-x86_64/mariadb-${VER}-linux-systemd-x86_64.tar.gz"; then
+            LINUX_DIR="${BASE}-linux-systemd-x86_64"
+            LINUX_NAME="mariadb-${VER}-linux-systemd-x86_64.tar.gz"
+          elif curl -fsSL -o "mariadb-${VER}-linux-x64.tar.gz" \
+                 "${BASE}-linux-x86_64/mariadb-${VER}-linux-x86_64.tar.gz"; then
+            LINUX_DIR="${BASE}-linux-x86_64"
+            LINUX_NAME="mariadb-${VER}-linux-x86_64.tar.gz"
+          fi
+          if [ -n "$LINUX_NAME" ]; then
+            verify_sha256 "mariadb-${VER}-linux-x64.tar.gz" "${LINUX_DIR}/sha256sums.txt" "$LINUX_NAME"
+            ASSETS+=("mariadb-${VER}-linux-x64.tar.gz")
+          else
+            echo "::error::MariaDB ${VER} linux-x64 not published by upstream (neither systemd nor plain bintar)" >&2
+            exit 1
+          fi
 
-          # macOS arm64
-          curl -fsSL -o "mariadb-${VER}-macos-arm64.tar.gz" \
-            "https://archive.mariadb.org/mariadb-${VER}/bintar-osx_arm64/mariadb-${VER}-osx_arm64.tar.gz" || true
+          # macOS arm64 (not published for every version — tolerate absence)
+          if curl -fsSL -o "mariadb-${VER}-macos-arm64.tar.gz" \
+               "https://archive.mariadb.org/mariadb-${VER}/bintar-osx_arm64/mariadb-${VER}-osx_arm64.tar.gz"; then
+            verify_sha256 "mariadb-${VER}-macos-arm64.tar.gz" \
+              "https://archive.mariadb.org/mariadb-${VER}/bintar-osx_arm64/sha256sums.txt" \
+              "mariadb-${VER}-osx_arm64.tar.gz"
+            ASSETS+=("mariadb-${VER}-macos-arm64.tar.gz")
+          else
+            echo "::warning::MariaDB ${VER} macOS-arm64 not published by upstream, shipping without it"
+            rm -f "mariadb-${VER}-macos-arm64.tar.gz"
+          fi
 
           # Windows x64 ZIP (matches wdc-catalog format + daemon BinaryDownloader's
           # zip extraction path; the MSI upstream publishes is not consumable by
           # the daemon and the catalog points at archive.mariadb.org directly).
-          curl -fsSL -o "mariadb-${VER}-windows-x64.zip" \
-            "https://archive.mariadb.org/mariadb-${VER}/winx64-packages/mariadb-${VER}-winx64.zip" || true
+          # Not published for every version — tolerate absence.
+          if curl -fsSL -o "mariadb-${VER}-windows-x64.zip" \
+               "https://archive.mariadb.org/mariadb-${VER}/winx64-packages/mariadb-${VER}-winx64.zip"; then
+            verify_sha256 "mariadb-${VER}-windows-x64.zip" \
+              "https://archive.mariadb.org/mariadb-${VER}/winx64-packages/sha256sums.txt" \
+              "mariadb-${VER}-winx64.zip"
+            ASSETS+=("mariadb-${VER}-windows-x64.zip")
+          else
+            echo "::warning::MariaDB ${VER} windows-x64 ZIP not published by upstream, shipping without it"
+            rm -f "mariadb-${VER}-windows-x64.zip"
+          fi
 
           ls -lh mariadb-${VER}-* 2>/dev/null || echo "No artifacts downloaded"
+
+          # Emit newline-separated file list for the upload step. Using the
+          # multiline heredoc form so softprops/action-gh-release receives the
+          # same format its `files:` input expects (one path per line).
+          {
+            echo "files<<__ASSETS_EOF__"
+            for a in "${ASSETS[@]}"; do echo "$a"; done
+            echo "__ASSETS_EOF__"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Upload to release
         uses: softprops/action-gh-release@v3
@@ -78,8 +155,7 @@ jobs:
           name: MariaDB ${{ steps.ver.outputs.version }} (cross-platform binaries)
           body: |
             Mirror of [MariaDB ${{ steps.ver.outputs.version }}](https://mariadb.org/download/?t=mariadb&p=mariadb&r=${{ steps.ver.outputs.version }}) for use with NKS WebDev Console's `wdc binaries install mariadb@${{ steps.ver.outputs.version }}` flow.
-          fail_on_unmatched_files: false
-          files: |
-            mariadb-${{ steps.ver.outputs.version }}-*
+          fail_on_unmatched_files: true
+          files: ${{ steps.download.outputs.files }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
