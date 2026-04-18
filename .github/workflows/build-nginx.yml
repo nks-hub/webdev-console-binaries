@@ -59,6 +59,17 @@ jobs:
           VER="${{ steps.ver.outputs.version }}"
           URL="https://nginx.org/download/nginx-${VER}.zip"
           curl -fsSL -o "nginx-${VER}-windows-x64.zip" "$URL"
+          # ── Supply-chain verification: TODO(SECURITY.md roadmap)
+          # nginx.org does NOT publish a .sha256/.sha512 sidecar next to
+          # download artifacts (verified 2026-04 — .sha256 returns 404).
+          # Only a detached PGP signature (.asc, signed by the release
+          # manager's key at https://nginx.org/keys/) is available. Adding
+          # gpg-verify in CI needs a pinned nginx release-manager keyring
+          # (currently rotates between mdounin/sb/thresh), which is its
+          # own supply-chain decision — deferred to the PGP-verify follow-up
+          # tracked in SECURITY.md. In the meantime, upstream
+          # integrity relies on TLS to nginx.org; the HTML-as-ZIP guard
+          # from PR #2 (magic-bytes + content-type + size) still applies.
           ls -lh "nginx-${VER}-windows-x64.zip"
 
       # ── Linux/macOS: source build ──
@@ -80,6 +91,11 @@ jobs:
         run: |
           VER="${{ steps.ver.outputs.version }}"
           curl -fsSL -o nginx-src.tar.gz "https://nginx.org/download/nginx-${VER}.tar.gz"
+          # ── Supply-chain verification: TODO(SECURITY.md roadmap)
+          # See the Windows step above — nginx.org publishes only a
+          # detached PGP signature (.asc), no SHA sidecar. gpg-verify
+          # against a pinned release-manager keyring is the right long-term
+          # fix; deferred to the PGP-verify follow-up in SECURITY.md.
           tar xf nginx-src.tar.gz
           cd nginx-${VER}
           PREFIX="${{ github.workspace }}/install/nginx-${VER}"
