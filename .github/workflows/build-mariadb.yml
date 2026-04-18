@@ -20,6 +20,14 @@ on:
         required: true
         type: string
 
+concurrency:
+  # Serialize runs targeting the same release tag so -r2/-r3 retry
+  # pushes don't race softprops/action-gh-release uploads. Different
+  # versions build in parallel. cancel-in-progress=false keeps a
+  # long-running build from being killed by a metadata re-tag.
+  group: ${{ github.workflow }}-${{ github.event.inputs.version || github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
