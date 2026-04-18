@@ -427,44 +427,83 @@ jobs:
             8.4)         IMAGICK=3.8.1; XDEBUG=3.5.1; REDIS=6.3.0; MONGODB=2.2.1;  APCU=5.1.28; MEMCACHED=3.4.0; SWOOLE=6.2.0;  IGBINARY=3.2.16; YAML=2.2.5; OAUTH= ;;
             8.5)         IMAGICK=3.8.1; XDEBUG=3.5.1; REDIS=6.3.0; MONGODB=2.2.1;  APCU=5.1.28; MEMCACHED=;      SWOOLE=6.2.0;  IGBINARY=3.2.16; YAML=2.2.5; OAUTH= ;;
           esac
+          # Manifest accumulates per-extension truth so ops can audit what actually shipped.
+          # Format (space-separated): STATUS <name> <version> [short_reason]
+          #   PASS <name> <version>
+          #   FAIL <name> <version> <short_reason>
+          #   SKIP <name> - no-version-for-php-<minor>
+          # linux-x64 is the reference build — any FAIL aborts the job. macOS is tolerant.
+          MANIFEST="${{ github.workspace }}/pecl-build-manifest-${{ matrix.target }}.txt"
+          : > "$MANIFEST"
+          echo "# PECL build manifest for PHP $VER on ${{ matrix.target }}" >> "$MANIFEST"
+          echo "# generated $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$MANIFEST"
           install_pecl_ext() {
-            local name=$1; local ver=$2
-            [ -z "$ver" ] && { echo "SKIP $name (no version for PHP $MM)"; return; }
+            local name=$1; local ver=$2; local extra=$3
+            if [ -z "$ver" ]; then
+              echo "SKIP $name - no-version-for-php-$MM" >> "$MANIFEST"
+              echo "SKIP $name (no version for PHP $MM)"
+              return 0
+            fi
             echo "::group::install $name-$ver via phpize"
             (
+              set -e
               cd /tmp
               rm -rf "${name}-${ver}" && mkdir -p "${name}-build" && cd "${name}-build"
-              if curl -fsSL -o ext.tgz "https://pecl.php.net/get/${name}-${ver}.tgz"; then
-                tar xzf ext.tgz
-                cd "${name}-${ver}" 2>/dev/null || cd "${name}"
-                "$PREFIX/bin/phpize"
-                ./configure --with-php-config="$PREFIX/bin/php-config" $3
-                make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) 2>&1 | tail -5
-                make install
-              else
-                echo "Download failed for $name-$ver"; return 1
-              fi
-            ) || echo "::warning::install $name-$ver failed (skipped)"
+              curl -fsSL -o ext.tgz "https://pecl.php.net/get/${name}-${ver}.tgz" || exit 10
+              tar xzf ext.tgz || exit 11
+              cd "${name}-${ver}" 2>/dev/null || cd "${name}" || exit 12
+              "$PREFIX/bin/phpize" || exit 13
+              ./configure --with-php-config="$PREFIX/bin/php-config" $extra || exit 14
+              make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) 2>&1 | tail -5 || exit 15
+              make install || exit 16
+            )
+            local rc=$?
             echo "::endgroup::"
+            if [ $rc -eq 0 ]; then
+              echo "PASS $name $ver" >> "$MANIFEST"
+              return 0
+            fi
+            local reason
+            case $rc in
+              10) reason="download" ;;
+              11) reason="extract" ;;
+              12) reason="chdir" ;;
+              13) reason="phpize" ;;
+              14) reason="configure" ;;
+              15) reason="make" ;;
+              16) reason="install" ;;
+              *)  reason="rc=$rc" ;;
+            esac
+            echo "FAIL $name $ver $reason" >> "$MANIFEST"
+            if [ "${{ matrix.target }}" = "linux-x64" ]; then
+              echo "::error::PECL $name-$ver failed ($reason) on linux-x64 reference build — aborting"
+              return 1
+            fi
+            echo "::warning::PECL $name-$ver failed ($reason) on ${{ matrix.target }} — continuing (non-reference build)"
+            return 0
           }
-          install_pecl_ext apcu     "$APCU"     "--enable-apcu"
-          install_pecl_ext redis    "$REDIS"
-          install_pecl_ext xdebug   "$XDEBUG"
-          install_pecl_ext igbinary "$IGBINARY"
-          install_pecl_ext yaml     "$YAML"
-          install_pecl_ext imagick  "$IMAGICK"
-          install_pecl_ext mongodb  "$MONGODB"
-          install_pecl_ext swoole   "$SWOOLE"   "--enable-openssl --enable-mysqlnd --enable-sockets"
-          install_pecl_ext memcached "$MEMCACHED" "--with-libmemcached-dir=$(brew --prefix libmemcached 2>/dev/null || echo /usr)"
-          install_pecl_ext oauth    "$OAUTH"
+          # On linux-x64 any install_pecl_ext failure returns non-zero → propagate via || exit 1.
+          # On macos-arm64 the helper swallows failure (returns 0) after recording FAIL line.
+          install_pecl_ext apcu      "$APCU"      "--enable-apcu" || exit 1
+          install_pecl_ext redis     "$REDIS"                     || exit 1
+          install_pecl_ext xdebug    "$XDEBUG"                    || exit 1
+          install_pecl_ext igbinary  "$IGBINARY"                  || exit 1
+          install_pecl_ext yaml      "$YAML"                      || exit 1
+          install_pecl_ext imagick   "$IMAGICK"                   || exit 1
+          install_pecl_ext mongodb   "$MONGODB"                   || exit 1
+          install_pecl_ext swoole    "$SWOOLE"    "--enable-openssl --enable-mysqlnd --enable-sockets" || exit 1
+          install_pecl_ext memcached "$MEMCACHED" "--with-libmemcached-dir=$(brew --prefix libmemcached 2>/dev/null || echo /usr)" || exit 1
+          install_pecl_ext oauth     "$OAUTH"                     || exit 1
           # IMAP via PECL for 8.4+ (was removed from core in 8.4)
           case "$MM" in
             8.4|8.5)
               if [ "${{ matrix.target }}" = "linux-x64" ]; then
                 sudo apt-get install -y -q libc-client-dev libkrb5-dev || true
               fi
-              install_pecl_ext imap 1.0.3 ;;
+              install_pecl_ext imap 1.0.3 || exit 1 ;;
           esac
+          echo "===== PECL build manifest (${{ matrix.target }}) ====="
+          cat "$MANIFEST"
           # Copy default php.ini and wire extensions
           INI="$PREFIX/lib/php.ini"
           cp "$PREFIX/lib/php.ini-production" "$INI" 2>/dev/null || cp php-${VER}/php.ini-production "$INI" 2>/dev/null || touch "$INI"
@@ -508,7 +547,19 @@ jobs:
             Self-contained PHP ${{ steps.ver.outputs.version }} binaries for use with
             NKS WebDev Console's `wdc binaries install` flow.
             Each archive expands to `bin/php`, `sbin/php-fpm` and supporting libs.
+            PECL build truth per platform is in `pecl-build-manifest-<target>.txt` (non-Windows).
           fail_on_unmatched_files: true
           files: php-${{ steps.ver.outputs.version }}-${{ matrix.target }}.${{ matrix.ext }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Upload PECL manifest only for non-Windows slots (Windows build doesn't run install_pecl_ext).
+      - name: Upload PECL manifest
+        if: matrix.target != 'windows-x64' && env.skip_source != 'true'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: binaries-php-${{ steps.ver.outputs.version }}
+          fail_on_unmatched_files: true
+          files: pecl-build-manifest-${{ matrix.target }}.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
