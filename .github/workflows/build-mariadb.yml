@@ -238,6 +238,8 @@ jobs:
           OPENSSL_ROOT="$(brew --prefix openssl@3)"
           PCRE_ROOT="$(brew --prefix pcre2)"
           LZ4_ROOT="$(brew --prefix lz4)"
+          SNAPPY_ROOT="$(brew --prefix snappy)"
+          ZSTD_ROOT="$(brew --prefix zstd)"
           XCODE_SYSROOT="$(xcrun --show-sdk-path)"
           export SDKROOT="${XCODE_SYSROOT}"
           export MACOSX_DEPLOYMENT_TARGET="14.0"
@@ -255,11 +257,16 @@ jobs:
             -DZLIB_INCLUDE_DIR="${XCODE_SYSROOT}/usr/include" \
             -DLZ4_INCLUDE_DIR="${LZ4_ROOT}/include" \
             -DLZ4_LIBRARY="${LZ4_ROOT}/lib/liblz4.dylib" \
+            -DSNAPPY_INCLUDE_DIR="${SNAPPY_ROOT}/include" \
+            -DSNAPPY_LIBRARY="${SNAPPY_ROOT}/lib/libsnappy.dylib" \
+            -DZSTD_INCLUDE_DIR="${ZSTD_ROOT}/include" \
+            -DZSTD_LIBRARY="${ZSTD_ROOT}/lib/libzstd.dylib" \
             -DWITH_SSL=system \
             -DOPENSSL_ROOT_DIR="${OPENSSL_ROOT}" \
             -DWITH_PCRE=system \
             -DPCRE2_ROOT="${PCRE_ROOT}" \
             -DWITH_READLINE=OFF \
+            -DPLUGIN_ROCKSDB=NO \
             -DWITHOUT_TOKUDB=1 \
             -DWITHOUT_MROONGA=1 \
             -DWITHOUT_SERVER=0 \
