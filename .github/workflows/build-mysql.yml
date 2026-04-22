@@ -135,6 +135,7 @@ jobs:
         if: steps.existing.outputs.already != 'true'
         run: |
           test "$(uname -m)" = "arm64"
+          sudo xcode-select --switch /Applications/Xcode_16.4.app/Contents/Developer
           xcodebuild -version
           xcrun --show-sdk-path
           brew update > /dev/null
