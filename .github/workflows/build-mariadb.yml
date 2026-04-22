@@ -222,6 +222,12 @@ jobs:
           # MariaDB server builds fine without them; readline/CLI uses
           # the system editline fallback.
           brew install cmake boost openssl@3 pcre2
+          # Pin the toolchain to full Xcode so xcrun returns the Xcode
+          # SDK path (libc++ + C headers in sync). Default macos-14
+          # runners mix Xcode 15.4 C++ headers with CommandLineTools 14
+          # C headers, which breaks <cstddef>/<cstdlib> on MariaDB 12.x.
+          sudo xcode-select --switch /Applications/Xcode_15.4.app/Contents/Developer
+          xcrun --show-sdk-path
 
       - name: Download + extract source
         if: steps.existing.outputs.already != 'true'
@@ -256,6 +262,7 @@ jobs:
             -DCMAKE_C_COMPILER=$(xcrun -f clang) \
             -DCMAKE_CXX_COMPILER=$(xcrun -f clang++) \
             -DCMAKE_OSX_SYSROOT="${XCODE_SYSROOT}" \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DWITH_SSL=system \
             -DOPENSSL_ROOT_DIR="${OPENSSL_ROOT}" \
             -DWITH_PCRE=system \
