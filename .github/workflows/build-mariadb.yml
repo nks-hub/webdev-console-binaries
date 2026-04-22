@@ -175,16 +175,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # macOS arm64: MariaDB upstream stopped publishing bintar-osx_arm64
-  # tarballs (archive.mariadb.org 404 for 11.4.x→12.3.x). Apple Silicon
-  # users of WDC had no installable DB. This job builds MariaDB from
-  # source on the official GitHub macos-14 (M1) runner so we can ship
-  # a macos-arm64 tarball alongside the mirrored Linux + Windows assets.
-  # Runs independently of `mirror` — if mirror fails the macOS build can
-  # still deliver value to Apple Silicon users.
+  # tarballs for these releases. Build from source on the macos-15 arm64
+  # image; macos-14/Xcode 15.4 breaks MariaDB's generated compile commands
+  # by mixing libc++ and C SDK include ordering.
   build-macos-arm64:
-    runs-on: macos-14
+    runs-on: macos-15
     needs: mirror
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - name: Resolve version
         id: ver
@@ -207,7 +204,6 @@ jobs:
           VER="${{ steps.ver.outputs.version }}"
           if gh release view "binaries-mariadb-${VER}" --json assets --jq '.assets[].name' 2>/dev/null | grep -q "mariadb-${VER}-macos-arm64.tar.gz"; then
             echo "already=true" >> $GITHUB_OUTPUT
-            echo "::notice::macOS arm64 asset already present on release, skipping source build"
           else
             echo "already=false" >> $GITHUB_OUTPUT
           fi
@@ -215,24 +211,17 @@ jobs:
       - name: Install build deps
         if: steps.existing.outputs.already != 'true'
         run: |
-          brew update > /dev/null
-          # Minimal kit — ncurses + libgcrypt + jemalloc caused Xcode
-          # SDK header ordering conflicts (brew's ncurses shipped a
-          # <stddef.h> that shadowed libc++'s copy, so cstddef failed).
-          # MariaDB server builds fine without them; readline/CLI uses
-          # the system editline fallback.
-          brew install cmake boost openssl@3 pcre2
-          # Pin the toolchain to full Xcode so xcrun returns the Xcode
-          # SDK path (libc++ + C headers in sync). Default macos-14
-          # runners mix Xcode 15.4 C++ headers with CommandLineTools 14
-          # C headers, which breaks <cstddef>/<cstdlib> on MariaDB 12.x.
-          sudo xcode-select --switch /Applications/Xcode_15.4.app/Contents/Developer
+          test "$(uname -m)" = "arm64"
+          xcodebuild -version
           xcrun --show-sdk-path
+          brew update > /dev/null
+          brew install cmake boost openssl@3 pcre2
 
       - name: Download + extract source
         if: steps.existing.outputs.already != 'true'
         shell: bash
         run: |
+          set -euo pipefail
           VER="${{ steps.ver.outputs.version }}"
           curl -fsSL -o "mariadb-${VER}.tar.gz" \
             "https://archive.mariadb.org/mariadb-${VER}/source/mariadb-${VER}.tar.gz"
@@ -243,36 +232,20 @@ jobs:
         if: steps.existing.outputs.already != 'true'
         shell: bash
         run: |
-          # -p so a re-run doesn't trip bash -e when the dir already
-          # exists from a partial previous step on the same runner.
+          set -euo pipefail
           mkdir -p src/build
           OPENSSL_ROOT="$(brew --prefix openssl@3)"
           PCRE_ROOT="$(brew --prefix pcre2)"
-          # Explicit -S/-B so cmake never guesses paths from pwd —
-          # fixes the "source directory does not appear to contain
-          # CMakeLists.txt" error we hit when multiline `cd` chains
-          # didn't propagate between run blocks.
           XCODE_SYSROOT="$(xcrun --show-sdk-path)"
-          # Export env so ALL sub-processes (cmake generators, make
-          # invocations of clang) see the consistent SDK. Without this,
-          # MariaDB's nested add_subdirectory() calls re-invoke the
-          # compiler with CFLAGS that dropped -isysroot, so libc++'s
-          # #include_next <stdint.h> chain breaks (SDK mix bug).
           export SDKROOT="${XCODE_SYSROOT}"
           export MACOSX_DEPLOYMENT_TARGET="14.0"
-          # Force libc++ headers via -isysroot BEFORE any brew
-          # /opt/homebrew/include that boost/openssl pull in, via
-          # CMAKE_C_FLAGS/CMAKE_CXX_FLAGS which cmake prepends.
-          CLANG_FLAGS="-isysroot ${XCODE_SYSROOT}"
           cmake -S src -B src/build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/out" \
-            -DCMAKE_C_COMPILER=$(xcrun -f clang) \
-            -DCMAKE_CXX_COMPILER=$(xcrun -f clang++) \
+            -DCMAKE_C_COMPILER="$(xcrun -f clang)" \
+            -DCMAKE_CXX_COMPILER="$(xcrun -f clang++)" \
             -DCMAKE_OSX_SYSROOT="${XCODE_SYSROOT}" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET="14.0" \
-            -DCMAKE_C_FLAGS="${CLANG_FLAGS}" \
-            -DCMAKE_CXX_FLAGS="${CLANG_FLAGS}" \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DWITH_SSL=system \
             -DOPENSSL_ROOT_DIR="${OPENSSL_ROOT}" \
@@ -288,12 +261,9 @@ jobs:
       - name: Build
         if: steps.existing.outputs.already != 'true'
         run: |
-          # Keep SDKROOT in scope for make sub-processes that re-invoke
-          # clang without inheriting cmake's CXX_FLAGS (nested tpool/sql
-          # libs do their own compiler calls).
           export SDKROOT="$(xcrun --show-sdk-path)"
           export MACOSX_DEPLOYMENT_TARGET="14.0"
-          cmake --build src/build --parallel $(sysctl -n hw.ncpu)
+          cmake --build src/build --parallel "$(sysctl -n hw.ncpu)"
 
       - name: Install + package
         if: steps.existing.outputs.already != 'true'

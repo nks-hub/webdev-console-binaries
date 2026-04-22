@@ -98,13 +98,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # macOS arm64: Oracle's community download page for MySQL offers DMGs,
-  # not zip/tarballs consumable by the daemon. We build from source on
-  # a GitHub-hosted macos-14 (Apple Silicon) runner and publish a tarball.
-  # Runs independently of `mirror` so macOS users get a binary even if
-  # the Windows/Linux mirror fails.
+  # macOS arm64: Oracle's community download page offers DMGs, not
+  # zip/tarballs consumable by the daemon. Build exact tagged sources on
+  # macos-15 arm64; macos-14/Xcode 15.4 trips on MySQL 9.x C++20 templates.
   build-macos-arm64:
-    runs-on: macos-14
+    runs-on: macos-15
     needs: mirror
     timeout-minutes: 120
     steps:
@@ -129,7 +127,6 @@ jobs:
           VER="${{ steps.ver.outputs.version }}"
           if gh release view "binaries-mysql-${VER}" --json assets --jq '.assets[].name' 2>/dev/null | grep -q "mysql-${VER}-macos-arm64.tar.gz"; then
             echo "already=true" >> $GITHUB_OUTPUT
-            echo "::notice::macOS arm64 asset already present on release, skipping source build"
           else
             echo "already=false" >> $GITHUB_OUTPUT
           fi
@@ -137,28 +134,20 @@ jobs:
       - name: Install build deps
         if: steps.existing.outputs.already != 'true'
         run: |
-          brew update > /dev/null
-          # MySQL build deps: CMake, OpenSSL 3, a recent Boost (bundled
-          # sources download below), zstd/libfido2 for 8.x+ client, and
-          # bison 3+ for SQL yacc grammar (macOS ships 2.3 in /usr/bin;
-          # MySQL's cmake rejects anything older than 3.0.4).
-          brew install cmake openssl@3 zstd libfido2 pkg-config bison
-          # Prepend brew bison so the cmake check sees 3.x first
-          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
-          # Pin toolchain to full Xcode (prevent C++/C SDK mix —
-          # default macos-14 xcrun returns CommandLineTools 14 SDK
-          # which shadows Xcode 15.4's libc++ headers).
-          sudo xcode-select --switch /Applications/Xcode_15.4.app/Contents/Developer
+          test "$(uname -m)" = "arm64"
+          xcodebuild -version
           xcrun --show-sdk-path
+          brew update > /dev/null
+          brew install cmake openssl@3 zstd libfido2 pkg-config bison
+          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
 
       - name: Download + extract source
         if: steps.existing.outputs.already != 'true'
         shell: bash
         run: |
+          set -euo pipefail
           VER="${{ steps.ver.outputs.version }}"
           MM="$(echo "$VER" | cut -d. -f1,2)"
-          # Source tarball from cdn.mysql.com (public, no login) — matches
-          # the dev.mysql.com redirect target.
           curl -fsSL -o "mysql-${VER}-src.tar.gz" \
             "https://dev.mysql.com/get/Downloads/MySQL-${MM}/mysql-${VER}.tar.gz"
           tar xzf "mysql-${VER}-src.tar.gz"
@@ -168,15 +157,20 @@ jobs:
         if: steps.existing.outputs.already != 'true'
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p src/bld boost-dl
           OPENSSL_ROOT="$(brew --prefix openssl@3)"
           BISON_EXE="$(brew --prefix bison)/bin/bison"
-          # Explicit -S/-B plus BISON_EXECUTABLE + absolute WITH_BOOST
-          # so cmake doesn't try to resolve paths through a pwd that
-          # can drift between multi-line run steps.
+          XCODE_SYSROOT="$(xcrun --show-sdk-path)"
+          export SDKROOT="${XCODE_SYSROOT}"
+          export MACOSX_DEPLOYMENT_TARGET="14.0"
           cmake -S src -B src/bld \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/out" \
+            -DCMAKE_C_COMPILER="$(xcrun -f clang)" \
+            -DCMAKE_CXX_COMPILER="$(xcrun -f clang++)" \
+            -DCMAKE_OSX_SYSROOT="${XCODE_SYSROOT}" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="14.0" \
             -DWITH_SSL="${OPENSSL_ROOT}" \
             -DBISON_EXECUTABLE="${BISON_EXE}" \
             -DWITH_BOOST="${GITHUB_WORKSPACE}/boost-dl" \
@@ -189,7 +183,9 @@ jobs:
       - name: Build
         if: steps.existing.outputs.already != 'true'
         run: |
-          cmake --build src/bld --parallel $(sysctl -n hw.ncpu)
+          export SDKROOT="$(xcrun --show-sdk-path)"
+          export MACOSX_DEPLOYMENT_TARGET="14.0"
+          cmake --build src/bld --parallel "$(sysctl -n hw.ncpu)"
 
       - name: Install + package
         if: steps.existing.outputs.already != 'true'
