@@ -247,7 +247,11 @@ jobs:
             -DCMAKE_CXX_COMPILER="$(xcrun -f clang++)" \
             -DCMAKE_OSX_SYSROOT="${XCODE_SYSROOT}" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET="14.0" \
+            -DCMAKE_IGNORE_PATH="/Library/Developer/CommandLineTools;/Library/Developer/CommandLineTools/SDKs/MacOSX15.sdk" \
+            -DCMAKE_SYSTEM_IGNORE_PATH="/Library/Developer/CommandLineTools;/Library/Developer/CommandLineTools/SDKs/MacOSX15.sdk" \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DZLIB_LIBRARY="${XCODE_SYSROOT}/usr/lib/libz.tbd" \
+            -DZLIB_INCLUDE_DIR="${XCODE_SYSROOT}/usr/include" \
             -DWITH_SSL=system \
             -DOPENSSL_ROOT_DIR="${OPENSSL_ROOT}" \
             -DWITH_PCRE=system \
