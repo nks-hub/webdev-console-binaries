@@ -216,7 +216,7 @@ jobs:
           xcodebuild -version
           xcrun --show-sdk-path
           brew update > /dev/null
-          brew install cmake boost openssl@3 pcre2
+          brew install cmake boost openssl@3 pcre2 lz4 zstd snappy
 
       - name: Download + extract source
         if: steps.existing.outputs.already != 'true'
@@ -237,6 +237,7 @@ jobs:
           mkdir -p src/build
           OPENSSL_ROOT="$(brew --prefix openssl@3)"
           PCRE_ROOT="$(brew --prefix pcre2)"
+          LZ4_ROOT="$(brew --prefix lz4)"
           XCODE_SYSROOT="$(xcrun --show-sdk-path)"
           export SDKROOT="${XCODE_SYSROOT}"
           export MACOSX_DEPLOYMENT_TARGET="14.0"
@@ -252,6 +253,8 @@ jobs:
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DZLIB_LIBRARY="${XCODE_SYSROOT}/usr/lib/libz.tbd" \
             -DZLIB_INCLUDE_DIR="${XCODE_SYSROOT}/usr/include" \
+            -DLZ4_INCLUDE_DIR="${LZ4_ROOT}/include" \
+            -DLZ4_LIBRARY="${LZ4_ROOT}/lib/liblz4.dylib" \
             -DWITH_SSL=system \
             -DOPENSSL_ROOT_DIR="${OPENSSL_ROOT}" \
             -DWITH_PCRE=system \
