@@ -232,10 +232,16 @@ jobs:
         if: steps.existing.outputs.already != 'true'
         shell: bash
         run: |
-          cd src && mkdir build && cd build
+          # -p so a re-run doesn't trip bash -e when the dir already
+          # exists from a partial previous step on the same runner.
+          mkdir -p src/build
           OPENSSL_ROOT="$(brew --prefix openssl@3)"
           PCRE_ROOT="$(brew --prefix pcre2)"
-          cmake .. \
+          # Explicit -S/-B so cmake never guesses paths from pwd —
+          # fixes the "source directory does not appear to contain
+          # CMakeLists.txt" error we hit when multiline `cd` chains
+          # didn't propagate between run blocks.
+          cmake -S src -B src/build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/out" \
             -DWITH_SSL=system \
@@ -251,16 +257,14 @@ jobs:
       - name: Build
         if: steps.existing.outputs.already != 'true'
         run: |
-          cd src/build
-          make -j$(sysctl -n hw.ncpu)
+          cmake --build src/build --parallel $(sysctl -n hw.ncpu)
 
       - name: Install + package
         if: steps.existing.outputs.already != 'true'
         shell: bash
         run: |
           VER="${{ steps.ver.outputs.version }}"
-          cd src/build && make install
-          cd "${GITHUB_WORKSPACE}"
+          cmake --install src/build
           tar czf "mariadb-${VER}-macos-arm64.tar.gz" -C out .
           ls -lh "mariadb-${VER}-macos-arm64.tar.gz"
 

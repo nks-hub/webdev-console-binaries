@@ -139,8 +139,12 @@ jobs:
         run: |
           brew update > /dev/null
           # MySQL build deps: CMake, OpenSSL 3, a recent Boost (bundled
-          # sources download below), and zstd/libfido2 for 8.x+ client.
-          brew install cmake openssl@3 zstd libfido2 pkg-config
+          # sources download below), zstd/libfido2 for 8.x+ client, and
+          # bison 3+ for SQL yacc grammar (macOS ships 2.3 in /usr/bin;
+          # MySQL's cmake rejects anything older than 3.0.4).
+          brew install cmake openssl@3 zstd libfido2 pkg-config bison
+          # Prepend brew bison so the cmake check sees 3.x first
+          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
 
       - name: Download + extract source
         if: steps.existing.outputs.already != 'true'
@@ -159,13 +163,18 @@ jobs:
         if: steps.existing.outputs.already != 'true'
         shell: bash
         run: |
-          cd src && mkdir bld && cd bld
+          mkdir -p src/bld boost-dl
           OPENSSL_ROOT="$(brew --prefix openssl@3)"
-          cmake .. \
+          BISON_EXE="$(brew --prefix bison)/bin/bison"
+          # Explicit -S/-B plus BISON_EXECUTABLE + absolute WITH_BOOST
+          # so cmake doesn't try to resolve paths through a pwd that
+          # can drift between multi-line run steps.
+          cmake -S src -B src/bld \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/out" \
             -DWITH_SSL="${OPENSSL_ROOT}" \
-            -DWITH_BOOST=../../boost-dl \
+            -DBISON_EXECUTABLE="${BISON_EXE}" \
+            -DWITH_BOOST="${GITHUB_WORKSPACE}/boost-dl" \
             -DDOWNLOAD_BOOST=1 \
             -DWITH_UNIT_TESTS=OFF \
             -DWITHOUT_SERVER=0 \
@@ -175,16 +184,14 @@ jobs:
       - name: Build
         if: steps.existing.outputs.already != 'true'
         run: |
-          cd src/bld
-          make -j$(sysctl -n hw.ncpu)
+          cmake --build src/bld --parallel $(sysctl -n hw.ncpu)
 
       - name: Install + package
         if: steps.existing.outputs.already != 'true'
         shell: bash
         run: |
           VER="${{ steps.ver.outputs.version }}"
-          cd src/bld && make install
-          cd "${GITHUB_WORKSPACE}"
+          cmake --install src/bld
           tar czf "mysql-${VER}-macos-arm64.tar.gz" -C out .
           ls -lh "mysql-${VER}-macos-arm64.tar.gz"
 
