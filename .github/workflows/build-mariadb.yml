@@ -216,7 +216,12 @@ jobs:
         if: steps.existing.outputs.already != 'true'
         run: |
           brew update > /dev/null
-          brew install cmake boost openssl@3 pcre2 ncurses libgcrypt jemalloc
+          # Minimal kit — ncurses + libgcrypt + jemalloc caused Xcode
+          # SDK header ordering conflicts (brew's ncurses shipped a
+          # <stddef.h> that shadowed libc++'s copy, so cstddef failed).
+          # MariaDB server builds fine without them; readline/CLI uses
+          # the system editline fallback.
+          brew install cmake boost openssl@3 pcre2
 
       - name: Download + extract source
         if: steps.existing.outputs.already != 'true'
@@ -241,13 +246,21 @@ jobs:
           # fixes the "source directory does not appear to contain
           # CMakeLists.txt" error we hit when multiline `cd` chains
           # didn't propagate between run blocks.
+          # Pin to Xcode's clang + SDK so brew include dirs don't slip
+          # ahead of libc++'s headers (the ncurses/libgcrypt conflict
+          # that failed the first build).
+          XCODE_SYSROOT="$(xcrun --show-sdk-path)"
           cmake -S src -B src/build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/out" \
+            -DCMAKE_C_COMPILER=$(xcrun -f clang) \
+            -DCMAKE_CXX_COMPILER=$(xcrun -f clang++) \
+            -DCMAKE_OSX_SYSROOT="${XCODE_SYSROOT}" \
             -DWITH_SSL=system \
             -DOPENSSL_ROOT_DIR="${OPENSSL_ROOT}" \
             -DWITH_PCRE=system \
             -DPCRE2_ROOT="${PCRE_ROOT}" \
+            -DWITH_READLINE=OFF \
             -DWITHOUT_TOKUDB=1 \
             -DWITHOUT_MROONGA=1 \
             -DWITHOUT_SERVER=0 \
