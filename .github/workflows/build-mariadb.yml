@@ -252,16 +252,27 @@ jobs:
           # fixes the "source directory does not appear to contain
           # CMakeLists.txt" error we hit when multiline `cd` chains
           # didn't propagate between run blocks.
-          # Pin to Xcode's clang + SDK so brew include dirs don't slip
-          # ahead of libc++'s headers (the ncurses/libgcrypt conflict
-          # that failed the first build).
           XCODE_SYSROOT="$(xcrun --show-sdk-path)"
+          # Export env so ALL sub-processes (cmake generators, make
+          # invocations of clang) see the consistent SDK. Without this,
+          # MariaDB's nested add_subdirectory() calls re-invoke the
+          # compiler with CFLAGS that dropped -isysroot, so libc++'s
+          # #include_next <stdint.h> chain breaks (SDK mix bug).
+          export SDKROOT="${XCODE_SYSROOT}"
+          export MACOSX_DEPLOYMENT_TARGET="14.0"
+          # Force libc++ headers via -isysroot BEFORE any brew
+          # /opt/homebrew/include that boost/openssl pull in, via
+          # CMAKE_C_FLAGS/CMAKE_CXX_FLAGS which cmake prepends.
+          CLANG_FLAGS="-isysroot ${XCODE_SYSROOT}"
           cmake -S src -B src/build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/out" \
             -DCMAKE_C_COMPILER=$(xcrun -f clang) \
             -DCMAKE_CXX_COMPILER=$(xcrun -f clang++) \
             -DCMAKE_OSX_SYSROOT="${XCODE_SYSROOT}" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="14.0" \
+            -DCMAKE_C_FLAGS="${CLANG_FLAGS}" \
+            -DCMAKE_CXX_FLAGS="${CLANG_FLAGS}" \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DWITH_SSL=system \
             -DOPENSSL_ROOT_DIR="${OPENSSL_ROOT}" \
@@ -277,6 +288,11 @@ jobs:
       - name: Build
         if: steps.existing.outputs.already != 'true'
         run: |
+          # Keep SDKROOT in scope for make sub-processes that re-invoke
+          # clang without inheriting cmake's CXX_FLAGS (nested tpool/sql
+          # libs do their own compiler calls).
+          export SDKROOT="$(xcrun --show-sdk-path)"
+          export MACOSX_DEPLOYMENT_TARGET="14.0"
           cmake --build src/build --parallel $(sysctl -n hw.ncpu)
 
       - name: Install + package
