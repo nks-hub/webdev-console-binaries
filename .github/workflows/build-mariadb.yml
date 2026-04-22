@@ -288,9 +288,11 @@ jobs:
           VER="${{ steps.ver.outputs.version }}"
           # MariaDB's auth_pam test install script uses an absolute
           # /suite/plugins/pam path even when CMAKE_INSTALL_PREFIX points
-          # at ./out. Create it so cmake --install can finish.
-          sudo mkdir -p /suite/plugins/pam
-          sudo chown -R "$USER" /suite
+          # at ./out. Patch the generated install script back into out/.
+          PAM_TEST_DIR="${GITHUB_WORKSPACE}/out/mysql-test/suite/plugins/pam"
+          mkdir -p "$PAM_TEST_DIR"
+          find src/build -path '*/plugin/auth_pam/testing/cmake_install.cmake' \
+            -exec sed -i.bak "s#DESTINATION \"/suite/plugins/pam\"#DESTINATION \"${PAM_TEST_DIR}\"#g" {} \;
           cmake --install src/build
           tar czf "mariadb-${VER}-macos-arm64.tar.gz" -C out .
           ls -lh "mariadb-${VER}-macos-arm64.tar.gz"
