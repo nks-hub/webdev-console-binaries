@@ -1,0 +1,198 @@
+name: Build MySQL Binaries
+
+# MySQL cross-platform binary distribution.
+#   Windows: mirror upstream dev.mysql.com community zips (pre-built).
+#   Linux:   mirror upstream dev.mysql.com linux-glibc2.x tarballs.
+#   macOS:   Oracle does not publish arm64 zips — build from source on
+#            a macos-14 (Apple Silicon) runner.
+#
+# Trigger:
+#   git tag binaries-mysql-8.4.8 && git push origin binaries-mysql-8.4.8
+#   (or workflow_dispatch with input `version`)
+
+on:
+  push:
+    tags:
+      - 'binaries-mysql-*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'MySQL version, e.g. 8.4.8 or 9.6.0'
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.inputs.version || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  # Mirror Windows + Linux community zips from dev.mysql.com. These are
+  # pre-built by Oracle and signed; we just rehost them on a GitHub
+  # release so NKS WDC's catalog (wdc.nks-hub.cz) has a stable asset URL.
+  mirror:
+    runs-on: ubuntu-24.04
+    outputs:
+      majorminor: ${{ steps.ver.outputs.majorminor }}
+    steps:
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            RAW="${GITHUB_REF_NAME#binaries-mysql-}"
+            VERSION="${RAW%-r*}"
+          fi
+          MAJORMINOR="$(echo "$VERSION" | cut -d. -f1,2)"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "majorminor=$MAJORMINOR" >> $GITHUB_OUTPUT
+
+      - name: Download upstream binaries
+        id: download
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          MM="${{ steps.ver.outputs.majorminor }}"
+          ASSETS=()
+
+          # Windows x64 community zip (official, always available).
+          WIN_URL="https://dev.mysql.com/get/Downloads/MySQL-${MM}/mysql-${VER}-winx64.zip"
+          if curl -fsSL -o "mysql-${VER}-windows-x64.zip" "$WIN_URL"; then
+            ASSETS+=("mysql-${VER}-windows-x64.zip")
+          else
+            echo "::warning::MySQL ${VER} windows-x64 not published at ${WIN_URL}"
+            rm -f "mysql-${VER}-windows-x64.zip"
+          fi
+
+          # Linux x64 generic glibc2.28 tarball. Oracle publishes these
+          # for recent releases — tolerate 404 for older versions.
+          LINUX_URL="https://dev.mysql.com/get/Downloads/MySQL-${MM}/mysql-${VER}-linux-glibc2.28-x86_64.tar.xz"
+          if curl -fsSL -o "mysql-${VER}-linux-x64.tar.xz" "$LINUX_URL"; then
+            ASSETS+=("mysql-${VER}-linux-x64.tar.xz")
+          else
+            echo "::warning::MySQL ${VER} linux-x64 not published at ${LINUX_URL}"
+            rm -f "mysql-${VER}-linux-x64.tar.xz"
+          fi
+
+          ls -lh mysql-${VER}-* 2>/dev/null || echo "No artifacts downloaded"
+
+          {
+            echo "files<<__ASSETS_EOF__"
+            for a in "${ASSETS[@]}"; do echo "$a"; done
+            echo "__ASSETS_EOF__"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3.0.0
+        with:
+          tag_name: binaries-mysql-${{ steps.ver.outputs.version }}
+          name: MySQL ${{ steps.ver.outputs.version }} (cross-platform binaries)
+          body: |
+            Mirror of [MySQL ${{ steps.ver.outputs.version }}](https://dev.mysql.com/downloads/mysql/) for use with NKS WebDev Console's `wdc binaries install mysql@${{ steps.ver.outputs.version }}` flow. macOS arm64 asset, if present, is built from source in a separate job (Oracle does not ship arm64 community zips).
+          fail_on_unmatched_files: false
+          files: ${{ steps.download.outputs.files }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # macOS arm64: Oracle's community download page for MySQL offers DMGs,
+  # not zip/tarballs consumable by the daemon. We build from source on
+  # a GitHub-hosted macos-14 (Apple Silicon) runner and publish a tarball.
+  # Runs independently of `mirror` so macOS users get a binary even if
+  # the Windows/Linux mirror fails.
+  build-macos-arm64:
+    runs-on: macos-14
+    needs: mirror
+    timeout-minutes: 120
+    steps:
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            RAW="${GITHUB_REF_NAME#binaries-mysql-}"
+            VERSION="${RAW%-r*}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Skip if macOS asset already shipped
+        id: existing
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          if gh release view "binaries-mysql-${VER}" --json assets --jq '.assets[].name' 2>/dev/null | grep -q "mysql-${VER}-macos-arm64.tar.gz"; then
+            echo "already=true" >> $GITHUB_OUTPUT
+            echo "::notice::macOS arm64 asset already present on release, skipping source build"
+          else
+            echo "already=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install build deps
+        if: steps.existing.outputs.already != 'true'
+        run: |
+          brew update > /dev/null
+          # MySQL build deps: CMake, OpenSSL 3, a recent Boost (bundled
+          # sources download below), and zstd/libfido2 for 8.x+ client.
+          brew install cmake openssl@3 zstd libfido2 pkg-config
+
+      - name: Download + extract source
+        if: steps.existing.outputs.already != 'true'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          MM="$(echo "$VER" | cut -d. -f1,2)"
+          # Source tarball from cdn.mysql.com (public, no login) — matches
+          # the dev.mysql.com redirect target.
+          curl -fsSL -o "mysql-${VER}-src.tar.gz" \
+            "https://dev.mysql.com/get/Downloads/MySQL-${MM}/mysql-${VER}.tar.gz"
+          tar xzf "mysql-${VER}-src.tar.gz"
+          mv "mysql-${VER}" src
+
+      - name: Configure (cmake)
+        if: steps.existing.outputs.already != 'true'
+        shell: bash
+        run: |
+          cd src && mkdir bld && cd bld
+          OPENSSL_ROOT="$(brew --prefix openssl@3)"
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/out" \
+            -DWITH_SSL="${OPENSSL_ROOT}" \
+            -DWITH_BOOST=../../boost-dl \
+            -DDOWNLOAD_BOOST=1 \
+            -DWITH_UNIT_TESTS=OFF \
+            -DWITHOUT_SERVER=0 \
+            -DINSTALL_MYSQLTESTDIR= \
+            -DINSTALL_SQLBENCHDIR=
+
+      - name: Build
+        if: steps.existing.outputs.already != 'true'
+        run: |
+          cd src/bld
+          make -j$(sysctl -n hw.ncpu)
+
+      - name: Install + package
+        if: steps.existing.outputs.already != 'true'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          cd src/bld && make install
+          cd "${GITHUB_WORKSPACE}"
+          tar czf "mysql-${VER}-macos-arm64.tar.gz" -C out .
+          ls -lh "mysql-${VER}-macos-arm64.tar.gz"
+
+      - name: Upload to release
+        if: steps.existing.outputs.already != 'true'
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3.0.0
+        with:
+          tag_name: binaries-mysql-${{ steps.ver.outputs.version }}
+          files: mysql-${{ steps.ver.outputs.version }}-macos-arm64.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

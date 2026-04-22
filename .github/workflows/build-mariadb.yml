@@ -173,3 +173,102 @@ jobs:
           files: ${{ steps.download.outputs.files }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # macOS arm64: MariaDB upstream stopped publishing bintar-osx_arm64
+  # tarballs (archive.mariadb.org 404 for 11.4.x→12.3.x). Apple Silicon
+  # users of WDC had no installable DB. This job builds MariaDB from
+  # source on the official GitHub macos-14 (M1) runner so we can ship
+  # a macos-arm64 tarball alongside the mirrored Linux + Windows assets.
+  # Runs independently of `mirror` — if mirror fails the macOS build can
+  # still deliver value to Apple Silicon users.
+  build-macos-arm64:
+    runs-on: macos-14
+    needs: mirror
+    timeout-minutes: 90
+    steps:
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            RAW="${GITHUB_REF_NAME#binaries-mariadb-}"
+            VERSION="${RAW%-r*}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Skip if macOS asset already shipped
+        id: existing
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          if gh release view "binaries-mariadb-${VER}" --json assets --jq '.assets[].name' 2>/dev/null | grep -q "mariadb-${VER}-macos-arm64.tar.gz"; then
+            echo "already=true" >> $GITHUB_OUTPUT
+            echo "::notice::macOS arm64 asset already present on release, skipping source build"
+          else
+            echo "already=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install build deps
+        if: steps.existing.outputs.already != 'true'
+        run: |
+          brew update > /dev/null
+          brew install cmake boost openssl@3 pcre2 ncurses libgcrypt jemalloc
+
+      - name: Download + extract source
+        if: steps.existing.outputs.already != 'true'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          curl -fsSL -o "mariadb-${VER}.tar.gz" \
+            "https://archive.mariadb.org/mariadb-${VER}/source/mariadb-${VER}.tar.gz"
+          tar xzf "mariadb-${VER}.tar.gz"
+          mv "mariadb-${VER}" src
+
+      - name: Configure (cmake)
+        if: steps.existing.outputs.already != 'true'
+        shell: bash
+        run: |
+          cd src && mkdir build && cd build
+          OPENSSL_ROOT="$(brew --prefix openssl@3)"
+          PCRE_ROOT="$(brew --prefix pcre2)"
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/out" \
+            -DWITH_SSL=system \
+            -DOPENSSL_ROOT_DIR="${OPENSSL_ROOT}" \
+            -DWITH_PCRE=system \
+            -DPCRE2_ROOT="${PCRE_ROOT}" \
+            -DWITHOUT_TOKUDB=1 \
+            -DWITHOUT_MROONGA=1 \
+            -DWITHOUT_SERVER=0 \
+            -DINSTALL_MYSQLTESTDIR= \
+            -DINSTALL_SQLBENCHDIR=
+
+      - name: Build
+        if: steps.existing.outputs.already != 'true'
+        run: |
+          cd src/build
+          make -j$(sysctl -n hw.ncpu)
+
+      - name: Install + package
+        if: steps.existing.outputs.already != 'true'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          cd src/build && make install
+          cd "${GITHUB_WORKSPACE}"
+          tar czf "mariadb-${VER}-macos-arm64.tar.gz" -C out .
+          ls -lh "mariadb-${VER}-macos-arm64.tar.gz"
+
+      - name: Upload to release
+        if: steps.existing.outputs.already != 'true'
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3.0.0
+        with:
+          tag_name: binaries-mariadb-${{ steps.ver.outputs.version }}
+          files: mariadb-${{ steps.ver.outputs.version }}-macos-arm64.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
