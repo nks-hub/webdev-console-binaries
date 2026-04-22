@@ -267,6 +267,7 @@ jobs:
             -DPCRE2_ROOT="${PCRE_ROOT}" \
             -DWITH_READLINE=OFF \
             -DPLUGIN_ROCKSDB=NO \
+            -DPLUGIN_AUTH_PAM=NO \
             -DWITHOUT_TOKUDB=1 \
             -DWITHOUT_MROONGA=1 \
             -DWITHOUT_SERVER=0 \
