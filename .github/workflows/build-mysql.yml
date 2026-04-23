@@ -246,6 +246,24 @@ jobs:
             [ -n "$p" ] && [ -d "$p/lib" ] && args+=(-s "$p/lib")
           done
           dylibbundler "${args[@]}" || echo "::warning::dylibbundler returned non-zero; will verify"
+          # After dylibbundler: re-enumerate $PREFIX/lib/*.dylib because the
+          # bundler COPIED fresh dylibs into it whose own LC_LOAD_DYLIB
+          # references still point at /opt/homebrew (bundler only rewrites
+          # the targets you pass via -x, not their transitive dylib copies).
+          # Stamp @loader_path on everything now + re-run dylibbundler on
+          # each to chase the dependency graph down.
+          mapfile -t BUNDLED < <(find "$PREFIX/lib" -maxdepth 1 -type f \( -name '*.dylib' -o -name '*.so' \))
+          # Fix transitive deps inside bundled libs (they reference each
+          # other via @rpath too, so each bundled lib needs its own rpath).
+          for bl in "${BUNDLED[@]}"; do
+            install_name_tool -add_rpath "@loader_path/." "$bl" 2>/dev/null || true
+            # Rewrite any residual /opt/homebrew LC_LOAD_DYLIB to @rpath form
+            otool -L "$bl" 2>/dev/null | awk '/\/opt\/homebrew/ {print $1}' | while read dep; do
+              name=$(basename "$dep")
+              install_name_tool -change "$dep" "@rpath/$name" "$bl" 2>/dev/null || true
+            done
+            codesign --force -s - "$bl" 2>/dev/null || true
+          done
           for t in "${TARGETS[@]}"; do
             install_name_tool -add_rpath "@loader_path/../lib" "$t" 2>/dev/null || true
             codesign --force -s - "$t" 2>/dev/null || true
