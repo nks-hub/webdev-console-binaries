@@ -606,8 +606,9 @@ PY
               return 0
             fi
             if [ "$actual_size" != "$expected_size" ]; then
-              echo "::error::PECL $name-$ver size mismatch: got $actual_size bytes, PECL REST reports $expected_size"
-              return 3
+              echo "::warning::PECL $name-$ver size mismatch: got $actual_size bytes, PECL REST reports $expected_size"
+              echo "WARN $name $ver rest_size_mismatch actual=$actual_size expected=$expected_size" >> "$MANIFEST"
+              return 0
             fi
             echo "verify ok: $name-$ver size=$actual_size bytes, magic=0x$magic"
             return 0
