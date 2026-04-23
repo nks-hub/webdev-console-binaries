@@ -370,6 +370,7 @@ jobs:
           GMP_FLAG="--with-gmp"
           ICONV_FLAG="--with-iconv"
           READLINE_FLAG="--with-readline"
+          PCRE_FLAG=""
           SQLITE_FLAGS="--with-pdo-sqlite --with-sqlite3"
           if [ "${{ matrix.target }}" = "macos-arm64" ]; then
             # Most brew formulae are keg-only on macOS, so PHP configure can't
@@ -399,6 +400,7 @@ jobs:
               ICONV_FLAG="--without-iconv"
               GMP_FLAG="--without-gmp"
               LDAP_FLAGS=""
+              PCRE_FLAG="--with-pcre-regex=$(brew --prefix pcre)"
             fi
           fi
           # ── Comprehensive PHP build covering common framework + CMS workloads.
@@ -499,6 +501,7 @@ jobs:
             $PG_FLAGS \
             $ARGON2_FLAGS $SODIUM_FLAGS \
             $READLINE_FLAG --with-xsl $TIDY_FLAGS $LDAP_FLAGS $GETTEXT_FLAGS \
+            $PCRE_FLAG \
             $PCRE_JIT_FLAG \
             $GD_FLAGS \
             $GMP_FLAG $ICONV_FLAG
@@ -520,7 +523,7 @@ jobs:
           export PATH="$PREFIX/bin:$PATH"
           # Build deps for ext native libs
           if [ "${{ matrix.target }}" = "macos-arm64" ]; then
-            brew install --formula imagemagick libmemcached libyaml pcre2 || true
+            brew install --formula imagemagick libmemcached libyaml pcre pcre2 || true
             export LDFLAGS="-L$(brew --prefix libmemcached)/lib -L$(brew --prefix libyaml)/lib -L$(brew --prefix imagemagick)/lib $LDFLAGS"
             export CPPFLAGS="-I$(brew --prefix libmemcached)/include -I$(brew --prefix libyaml)/include -I$(brew --prefix imagemagick)/include $CPPFLAGS"
           else
