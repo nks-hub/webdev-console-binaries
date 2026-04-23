@@ -56,6 +56,37 @@ curl -L -o php.tar.xz \
 | `binaries-cloudflared-<X.Y.Z>`    | Win/Linux/macOS x64+arm64                  | mirror of cloudflare/cloudflared                 |
 | `binaries-mailpit-<X.Y.Z>`        | Win x64, macOS arm64, Linux x64            | mirror of axllent/mailpit                        |
 
+## Release Catalog
+
+<!-- RELEASE_TABLE_START -->
+| Tag | Name | Published | Assets | Description |
+| --- | --- | --- | ---: | --- |
+| [binaries-mysql-9.6.0](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-mysql-9.6.0) | MySQL 9.6.0 (cross-platform binaries) | 2026-04-22 | 3 | Mirror of [MySQL 9.6.0](https://dev.mysql.com/downloads/mysql/) for use with NKS WebDev Console's `wdc binaries install mysql@9.6.0` flow... |
+| [binaries-mysql-8.4.8](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-mysql-8.4.8) | MySQL 8.4.8 (cross-platform binaries) | 2026-04-22 | 3 | Mirror of [MySQL 8.4.8](https://dev.mysql.com/downloads/mysql/) for use with NKS WebDev Console's `wdc binaries install mysql@8.4.8` flow... |
+| [binaries-mariadb-12.3.1](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-mariadb-12.3.1) | MariaDB 12.3.1 (cross-platform binaries) | 2026-04-18 | 4 | Mirror of [MariaDB 12.3.1](https://mariadb.org/download/?t=mariadb&p=mariadb&r=12.3.1) for use with NKS WebDev Console's `wdc binaries in... |
+| [binaries-mariadb-11.8.3](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-mariadb-11.8.3) | MariaDB 11.8.3 (cross-platform binaries) | 2026-04-18 | 4 | Mirror of [MariaDB 11.8.3](https://mariadb.org/download/?t=mariadb&p=mariadb&r=11.8.3) for use with NKS WebDev Console's `wdc binaries in... |
+| [binaries-php-8.0.30](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-php-8.0.30) | PHP 8.0.30 (cross-platform binaries) | 2026-04-17 | 2 | Self-contained PHP 8.0.30 binaries for use with |
+| [binaries-php-7.4.33](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-php-7.4.33) | PHP 7.4.33 (cross-platform binaries) | 2026-04-17 | 4 | Self-contained PHP 7.4.33 binaries for use with |
+| [binaries-php-7.3.33](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-php-7.3.33) | PHP 7.3.33 (cross-platform binaries) | 2026-04-17 | 2 | Self-contained PHP 7.3.33 binaries for use with |
+| [binaries-php-7.2.34](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-php-7.2.34) | PHP 7.2.34 (cross-platform binaries) | 2026-04-17 | 2 | Self-contained PHP 7.2.34 binaries for use with |
+| [binaries-php-7.1.33](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-php-7.1.33) | PHP 7.1.33 (cross-platform binaries) | 2026-04-17 | 2 | Self-contained PHP 7.1.33 binaries for use with |
+| [binaries-php-8.4.20](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-php-8.4.20) | PHP 8.4.20 (cross-platform binaries) | 2026-04-17 | 3 | Self-contained PHP 8.4.20 binaries for use with |
+| [binaries-php-8.3.25](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-php-8.3.25) | PHP 8.3.25 (cross-platform binaries) | 2026-04-17 | 3 | Self-contained PHP 8.3.25 binaries for use with |
+| [binaries-php-8.2.30](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-php-8.2.30) | PHP 8.2.30 (cross-platform binaries) | 2026-04-17 | 3 | Self-contained PHP 8.2.30 binaries for use with |
+| [binaries-php-8.1.33](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-php-8.1.33) | PHP 8.1.33 (cross-platform binaries) | 2026-04-17 | 3 | Self-contained PHP 8.1.33 binaries for use with |
+| [binaries-php-8.5.5](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-php-8.5.5) | PHP 8.5.5 (cross-platform binaries) | 2026-04-17 | 3 | Self-contained PHP 8.5.5 binaries for use with |
+| [binaries-nginx-1.27.3](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-nginx-1.27.3) | Nginx 1.27.3 (cross-platform binaries) | 2026-04-17 | 3 | Self-contained Nginx 1.27.3 binaries for use |
+| [binaries-cloudflared-2026.3.0](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-cloudflared-2026.3.0) | cloudflared 2026.3.0 (cross-platform binaries) | 2026-04-17 | 6 | Mirror of upstream **cloudflared 2026.3.0** for use with NKS WebDev Console's `wdc binaries install` flow. File naming follows the catalo... |
+| [binaries-php-7.0.33](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-php-7.0.33) | PHP 7.0.33 (cross-platform binaries) | 2026-04-17 | 1 | Self-contained PHP 7.0.33 binaries for use with |
+| [binaries-apache-2.4.66](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-apache-2.4.66) | Apache HTTPD 2.4.66 (cross-platform binaries) | 2026-04-17 | 3 | Self-contained Apache HTTPD 2.4.66 binaries for |
+| [binaries-redis-7.4.2](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-redis-7.4.2) | Redis 7.4.2 (cross-platform binaries) | 2026-04-17 | 3 | Self-contained Redis 7.4.2 binaries for use with NKS WebDev Console's `wdc binaries install redis@7.4.2` flow. Linux/macOS built from ups... |
+| [binaries-php-5.6.40](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-php-5.6.40) | PHP 5.6.40 (cross-platform binaries) | 2026-04-17 | 1 | Self-contained PHP 5.6.40 binaries for use with |
+| [binaries-mailpit-1.29.6](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-mailpit-1.29.6) | mailpit 1.29.6 (cross-platform binaries) | 2026-04-17 | 3 | Mirror of upstream **mailpit 1.29.6** for use with NKS WebDev Console's `wdc binaries install` flow. File naming follows the catalog's `$... |
+| [binaries-caddy-2.10.2](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-caddy-2.10.2) | caddy 2.10.2 (cross-platform binaries) | 2026-04-17 | 3 | Mirror of upstream **caddy 2.10.2** for use with NKS WebDev Console's `wdc binaries install` flow. File naming follows the catalog's `${a... |
+| [binaries-mariadb-11.4.4](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-mariadb-11.4.4) | MariaDB 11.4.4 (cross-platform binaries) | 2026-04-17 | 4 | Mirror of [MariaDB 11.4.4](https://mariadb.org/download/?t=mariadb&p=mariadb&r=11.4.4) for use with NKS WebDev Console's `wdc binaries in... |
+| [binaries-mkcert-1.4.4](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-mkcert-1.4.4) | mkcert 1.4.4 (cross-platform binaries) | 2026-04-17 | 3 | Mirror of [FiloSottile/mkcert 1.4.4](https://github.com/FiloSottile/mkcert/releases/tag/v1.4.4) for use with NKS WebDev Console's `wdc bi... |
+<!-- RELEASE_TABLE_END -->
+
 ## PHP build matrix
 
 | PHP   | Win x64 | Linux x64 | macOS arm64 | Notes                                                        |

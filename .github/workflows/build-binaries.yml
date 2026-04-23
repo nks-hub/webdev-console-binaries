@@ -144,8 +144,8 @@ jobs:
       #                    or Homebrew openssl@3). Use docker:ubuntu:20.04 on
       #                    Linux runner and openssl@1.1 on macOS runner.
       #   8.1+           → OpenSSL 3 works fine, use system/openssl@3.
-      # 5.x is also gated by other deprecations (libxml2, etc.) — keep it
-      # opt-in until we have a 16.04-style image; for now skip on Linux/Mac.
+      # 5.x is still too old for a stable Linux CI toolchain in this workflow,
+      # but macOS legacy builds are now attempted with trimmed flags.
       - name: Classify PHP version (legacy_ssl, skip_source)
         if: matrix.target != 'windows-x64'
         shell: bash
@@ -155,14 +155,22 @@ jobs:
           # Defaults
           SKIP=false; LEGACY=false
           case "$MM" in
-            5.*|7.0)
-              # PHP 5.x: too old for any modern toolchain.
-              # PHP 7.0: ext/intl uses `using icu::UnicodeString` which doesn't
-              # work against ICU 66+ (Ubuntu 20.04+) where the namespace
-              # alias was changed; PHP 7.1+ already routes around this.
-              # Both are EOL since 2018-12 (7.0) / 2020-12 (5.x), so skip.
-              SKIP=true; LEGACY=true
-              echo "::warning::PHP $MM Linux/Mac builds disabled (toolchain incompatibility)" ;;
+            5.*)
+              # Keep Linux skipped for PHP 5.x (too old for current container
+              # recipe), but try macOS legacy source build.
+              LEGACY=true
+              if [ "$TGT" = "linux-x64" ]; then
+                SKIP=true
+                echo "::warning::PHP $MM Linux build skipped (legacy toolchain incompatibility)"
+              fi ;;
+            7.0)
+              # PHP 7.0 still has ICU drift issues on Linux legacy container;
+              # keep Linux skipped but allow macOS legacy build path.
+              LEGACY=true
+              if [ "$TGT" = "linux-x64" ]; then
+                SKIP=true
+                echo "::warning::PHP $MM Linux build skipped (ICU/toolchain incompatibility)"
+              fi ;;
             7.*|8.0)
               # 7.x and 8.0 compile on Linux via docker:ubuntu:20.04 (OpenSSL 1.1.1,
               # libxml2 2.9). macOS has two independent ABI breaks vs legacy PHP:
@@ -173,9 +181,9 @@ jobs:
               #       code can't parse.
               # Building both libxml2 2.9 and ICU 66 from source on every CI
               # run costs ~20min extra and doesn't resolve every downstream
-              # deprecation. Legacy PHP on macOS is skipped; Linux (docker
-              # ubuntu:20.04) still builds fully.
-              if [ "$TGT" = "macos-arm64" ] && [ "$MM" != "7.4" ]; then SKIP=true; echo "::warning::PHP $MM macOS skipped (libxml2 + icu ABI)"; fi
+              # deprecation. 7.1+ now uses fallback flags on macOS; keep 8.0
+              # skipped there until a dedicated patchset exists.
+              if [ "$TGT" = "macos-arm64" ] && [ "$MM" = "8.0" ]; then SKIP=true; echo "::warning::PHP $MM macOS skipped (legacy ABI/toolchain drift)"; fi
               LEGACY=true ;;
             *)
               # 8.1+: native build, OpenSSL 3.
@@ -183,6 +191,22 @@ jobs:
           esac
           echo "skip_source=$SKIP" >> $GITHUB_ENV
           echo "legacy_ssl=$LEGACY" >> $GITHUB_ENV
+
+      - name: Windows — smoke test php -v
+        if: matrix.target == 'windows-x64'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ver = '${{ steps.ver.outputs.version }}'
+          $zip = "php-$ver-windows-x64.zip"
+          if (!(Test-Path $zip)) { throw "Missing archive: $zip" }
+          $dst = Join-Path $PWD 'php-win-smoke'
+          if (Test-Path $dst) { Remove-Item -Recurse -Force $dst }
+          Expand-Archive -Path $zip -DestinationPath $dst -Force
+          $php = Get-ChildItem -Path $dst -Recurse -Filter php.exe | Select-Object -First 1
+          if (-not $php) { throw "php.exe not found in $zip" }
+          & $php.FullName -v
+          if ($LASTEXITCODE -ne 0) { throw "php -v failed with exit code $LASTEXITCODE" }
 
       # Linux modern (8.1+): native build on ubuntu-24.04
       - name: Linux — install build deps (modern openssl3)
@@ -379,6 +403,22 @@ jobs:
           GETTEXT_FLAGS="--with-gettext"
           ARGON2_FLAGS="--with-password-argon2"
           SODIUM_FLAGS="--with-sodium"
+          INTL_FLAG="--enable-intl"
+          MM="${{ steps.ver.outputs.major_minor }}"
+          # Feature gates by PHP minor:
+          # - 5.6/7.0: ext/intl fails with modern icu4c -> disable intl.
+          # - <7.2: no argon2/sodium configure switches.
+          case "$MM" in
+            5.*|7.0)
+              INTL_FLAG="--disable-intl"
+              ARGON2_FLAGS=""
+              SODIUM_FLAGS=""
+              ;;
+            7.1)
+              ARGON2_FLAGS=""
+              SODIUM_FLAGS=""
+              ;;
+          esac
           # macOS legacy: prefer the libxml2 2.9 we built from source by
           # putting it first on pkg-config/include/lib search paths.
           if [ "${{ matrix.target }}" = "macos-arm64" ] && [ "${{ env.legacy_ssl }}" = "true" ] && [ -n "${{ env.LIBXML_PREFIX }}" ]; then
@@ -390,7 +430,6 @@ jobs:
           # so users with legacy mail-handling code keep working. Needs libc-client
           # which is itself deprecated; install via apt/brew where still packaged.
           IMAP_FLAGS=""
-          MM="${{ steps.ver.outputs.major_minor }}"
           case "$MM" in
             7.*|8.0|8.1|8.2|8.3) IMAP_FLAGS="--with-imap --with-imap-ssl --with-kerberos" ;;
           esac
@@ -410,14 +449,19 @@ jobs:
             TIDY_FLAGS="--with-tidy=$(brew --prefix tidy-html5)"
             LDAP_FLAGS="--with-ldap=$(brew --prefix openldap)"
             GETTEXT_FLAGS="--with-gettext=$(brew --prefix gettext)"
-            ARGON2_FLAGS="--with-password-argon2=$(brew --prefix argon2)"
-            SODIUM_FLAGS="--with-sodium=$(brew --prefix libsodium)"
+            case "$MM" in
+              5.*|7.0|7.1) ;;
+              *)
+                ARGON2_FLAGS="--with-password-argon2=$(brew --prefix argon2)"
+                SODIUM_FLAGS="--with-sodium=$(brew --prefix libsodium)"
+                ;;
+            esac
           fi
           ./configure --prefix="$PREFIX" \
             --enable-fpm --enable-cli --enable-cgi \
             --enable-opcache \
             --enable-mbstring --enable-bcmath --enable-soap \
-            --enable-intl --enable-pcntl --enable-sockets --enable-exif \
+            $INTL_FLAG --enable-pcntl --enable-sockets --enable-exif \
             --enable-ftp --enable-shmop --enable-sysvmsg --enable-sysvsem --enable-sysvshm \
             --enable-calendar --enable-dba \
             --with-openssl --with-curl --with-zip --with-zlib $BZ2_FLAG \
@@ -601,6 +645,20 @@ jobs:
           done
           echo "===== PHP modules installed ====="
           "$PREFIX/bin/php" -m
+
+      - name: Smoke test PHP runtime (php -v)
+        if: matrix.target != 'windows-x64' && env.skip_source != 'true'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          PREFIX="${{ github.workspace }}/install/php-${VER}"
+          if [ "${{ matrix.target }}" = "linux-x64" ] && [ "${{ env.legacy_ssl }}" = "true" ]; then
+            export LD_LIBRARY_PATH="$PREFIX/lib:${LD_LIBRARY_PATH:-}"
+          fi
+          if [ "${{ matrix.target }}" = "macos-arm64" ] && [ "${{ env.legacy_ssl }}" = "true" ]; then
+            export DYLD_FALLBACK_LIBRARY_PATH="$PREFIX/lib:$(brew --prefix openssl@1.1)/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
+          fi
+          "$PREFIX/bin/php" -v
 
       - name: Package — Linux/macOS tar.xz
         if: matrix.target != 'windows-x64' && env.skip_source != 'true'
