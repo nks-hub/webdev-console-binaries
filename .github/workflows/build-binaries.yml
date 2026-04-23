@@ -365,7 +365,7 @@ jobs:
             # PHP 5.6/7.0 bundled PCRE SLJIT on Apple Silicon misses the
             # macOS cache-control declaration and fails on sys_icache_invalidate().
             # Inject the canonical Apple header before configure/build.
-            python3 -c "from pathlib import Path; path=Path('ext/pcre/pcrelib/sljit/sljitConfigInternal.h'); text=path.read_text(); needle='#elif defined __APPLE__\n'; insert=needle+'#include <libkern/OSCacheControl.h>\n'; assert needle in text, 'sljitConfigInternal.h Apple branch missing'; '#include <libkern/OSCacheControl.h>' in text or path.write_text(text.replace(needle, insert, 1))"
+            python3 -c "from pathlib import Path; candidates=(Path('ext/pcre/pcrelib/sljit/sljitConfigInternal.h'), Path('ext/pcre/pcre2lib/sljit/sljitConfigInternal.h')); path=next((p for p in candidates if p.exists()), None); assert path, 'sljitConfigInternal.h not found'; text=path.read_text(); needle='#elif defined __APPLE__\n'; insert=needle+'#include <libkern/OSCacheControl.h>\n'; assert needle in text, f'{path} Apple branch missing'; '#include <libkern/OSCacheControl.h>' in text or path.write_text(text.replace(needle, insert, 1))"
           fi
           PREFIX="${{ github.workspace }}/install/php-${VER}"
           BZ2_FLAG="--with-bz2"
