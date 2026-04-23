@@ -287,6 +287,10 @@ jobs:
             mkdir -p /dst/lib
             cp -L /usr/lib/x86_64-linux-gnu/libssl.so.1.1 /dst/lib/
             cp -L /usr/lib/x86_64-linux-gnu/libcrypto.so.1.1 /dst/lib/
+            # Legacy PHP (7.0-7.3) links against ICU 66 from ubuntu:20.04.
+            # Bundle ICU libs so host-side smoke test + end-user runtime don't
+            # depend on distro-provided libicu66.
+            cp -L /usr/lib/x86_64-linux-gnu/libicu*.so.66 /dst/lib/ || true
           "
 
       # macOS modern (8.1+): brew openssl@3 + libiconv (for PHP iconv ext)
@@ -359,6 +363,8 @@ jobs:
           cd php-${VER}
           PREFIX="${{ github.workspace }}/install/php-${VER}"
           BZ2_FLAG="--with-bz2"
+          ZIP_FLAG="--with-zip"
+          ZLIB_FLAG="--with-zlib"
           GMP_FLAG="--with-gmp"
           ICONV_FLAG="--with-iconv"
           READLINE_FLAG="--with-readline"
@@ -376,9 +382,10 @@ jobs:
             else
               SSL_PREFIX="$(brew --prefix openssl@3)"
             fi
-            export PKG_CONFIG_PATH="$SSL_PREFIX/lib/pkgconfig:$(brew --prefix icu4c)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix gmp)/lib/pkgconfig:$(brew --prefix libiconv)/lib/pkgconfig:$(brew --prefix readline)/lib/pkgconfig:$PKG_CONFIG_PATH"
-            export LDFLAGS="-L$(brew --prefix gmp)/lib -L$(brew --prefix libiconv)/lib -L$(brew --prefix readline)/lib $LDFLAGS"
-            export CPPFLAGS="-I$(brew --prefix gmp)/include -I$(brew --prefix libiconv)/include -I$(brew --prefix readline)/include $CPPFLAGS"
+            ZLIB_PREFIX="$(brew --prefix zlib)"
+            export PKG_CONFIG_PATH="$SSL_PREFIX/lib/pkgconfig:$(brew --prefix icu4c)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix gmp)/lib/pkgconfig:$(brew --prefix libiconv)/lib/pkgconfig:$(brew --prefix readline)/lib/pkgconfig:${ZLIB_PREFIX}/lib/pkgconfig:$PKG_CONFIG_PATH"
+            export LDFLAGS="-L$(brew --prefix gmp)/lib -L$(brew --prefix libiconv)/lib -L$(brew --prefix readline)/lib -L${ZLIB_PREFIX}/lib $LDFLAGS"
+            export CPPFLAGS="-I$(brew --prefix gmp)/include -I$(brew --prefix libiconv)/include -I$(brew --prefix readline)/include -I${ZLIB_PREFIX}/include $CPPFLAGS"
             if [ "${{ env.legacy_ssl }}" = "true" ]; then
               # Homebrew icu4c now requires C++17 headers. PHP 7.4's intl
               # extension is C++ but its old build system does not request
@@ -413,10 +420,24 @@ jobs:
               INTL_FLAG="--disable-intl"
               ARGON2_FLAGS=""
               SODIUM_FLAGS=""
+              ZIP_FLAG="--enable-zip"
+              if [ "${{ matrix.target }}" = "macos-arm64" ]; then
+                ZLIB_FLAG="--with-zlib-dir=$(brew --prefix zlib)"
+              fi
               ;;
             7.1)
               ARGON2_FLAGS=""
               SODIUM_FLAGS=""
+              ZIP_FLAG="--enable-zip"
+              if [ "${{ matrix.target }}" = "macos-arm64" ]; then
+                ZLIB_FLAG="--with-zlib-dir=$(brew --prefix zlib)"
+              fi
+              ;;
+            7.2|7.3)
+              ZIP_FLAG="--enable-zip"
+              if [ "${{ matrix.target }}" = "macos-arm64" ]; then
+                ZLIB_FLAG="--with-zlib-dir=$(brew --prefix zlib)"
+              fi
               ;;
           esac
           # macOS legacy: prefer the libxml2 2.9 we built from source by
@@ -464,7 +485,7 @@ jobs:
             $INTL_FLAG --enable-pcntl --enable-sockets --enable-exif \
             --enable-ftp --enable-shmop --enable-sysvmsg --enable-sysvsem --enable-sysvshm \
             --enable-calendar --enable-dba \
-            --with-openssl --with-curl --with-zip --with-zlib $BZ2_FLAG \
+            --with-openssl --with-curl $ZIP_FLAG $ZLIB_FLAG $BZ2_FLAG \
             --with-mysqli --with-pdo-mysql --with-pdo-sqlite --with-sqlite3 \
             $PG_FLAGS \
             $ARGON2_FLAGS $SODIUM_FLAGS \
