@@ -188,12 +188,81 @@ jobs:
           export MACOSX_DEPLOYMENT_TARGET="14.0"
           cmake --build src/bld --parallel "$(sysctl -n hw.ncpu)"
 
-      - name: Install + package
+      - name: Install
+        if: steps.existing.outputs.already != 'true'
+        shell: bash
+        run: |
+          cmake --install src/bld
+
+      # Bundle keg-only brew dylibs (protobuf, openssl, zstd, lz4, libevent,
+      # libfido2, ...) into out/lib so MySQL binaries run on any Apple
+      # Silicon Mac without Homebrew. dylibbundler walks LC_LOAD_DYLIB on
+      # every Mach-O under bin/ + lib/plugin/, copies each /opt/homebrew
+      # dylib into -d <dst>, rewrites references to @rpath/<lib>, and we
+      # stamp @loader_path/../lib so binaries find their deps relative to
+      # their own location. Without this, users see:
+      #   dyld: Library not loaded: /opt/homebrew/opt/protobuf/.../libprotobuf-lite.24.4.0.dylib
+      - name: macOS — bundle brew dylibs (dylibbundler)
         if: steps.existing.outputs.already != 'true'
         shell: bash
         run: |
           VER="${{ steps.ver.outputs.version }}"
-          cmake --install src/bld
+          PREFIX="$GITHUB_WORKSPACE/out"
+          brew install --quiet dylibbundler >/dev/null
+          mkdir -p "$PREFIX/lib"
+          TARGETS=()
+          for d in "$PREFIX/bin"; do
+            [ -d "$d" ] || continue
+            while IFS= read -r f; do
+              file "$f" 2>/dev/null | grep -q 'Mach-O' && TARGETS+=("$f")
+            done < <(find "$d" -maxdepth 1 -type f)
+          done
+          # lib/plugin holds dynamic MySQL plugins (keyring, auth, ...).
+          for d in "$PREFIX/lib/plugin" "$PREFIX/lib/mysql/plugin"; do
+            [ -d "$d" ] || continue
+            while IFS= read -r f; do
+              case "$f" in *.dylib|*.so)
+                file "$f" 2>/dev/null | grep -q 'Mach-O' && TARGETS+=("$f") ;;
+              esac
+            done < <(find "$d" -maxdepth 1 -type f)
+          done
+          echo "Bundling ${#TARGETS[@]} Mach-O target(s)"
+          args=(-b -cd -of -d "$PREFIX/lib" -p "@rpath/")
+          for t in "${TARGETS[@]}"; do args+=(-x "$t"); done
+          for keg in openssl@3 openssl@1.1 protobuf zstd lz4 libevent icu4c \
+                     libfido2 readline ncurses cyrus-sasl abseil zlib boost; do
+            p=$(brew --prefix "$keg" 2>/dev/null || true)
+            [ -n "$p" ] && [ -d "$p/lib" ] && args+=(-s "$p/lib")
+          done
+          dylibbundler "${args[@]}" || echo "::warning::dylibbundler returned non-zero; will verify"
+          for t in "${TARGETS[@]}"; do
+            install_name_tool -add_rpath "@loader_path/../lib" "$t" 2>/dev/null || true
+            codesign --force -s - "$t" 2>/dev/null || true
+          done
+          leaked=""
+          for t in "${TARGETS[@]}" "$PREFIX"/lib/*.dylib; do
+            [ -f "$t" ] || continue
+            if otool -L "$t" 2>/dev/null | grep -qE '/opt/homebrew|/usr/local/opt'; then
+              leaked+=$'\n'"  $t"
+            fi
+          done
+          if [ -n "$leaked" ]; then
+            echo "::error::brew dylib refs leaked:$leaked"
+            exit 1
+          fi
+          echo "✓ MySQL dependency graph is self-contained"
+
+      - name: Smoke test mysqld --version
+        if: steps.existing.outputs.already != 'true'
+        shell: bash
+        run: |
+          "$GITHUB_WORKSPACE/out/bin/mysqld" --version
+
+      - name: Package tarball
+        if: steps.existing.outputs.already != 'true'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
           tar czf "mysql-${VER}-macos-arm64.tar.gz" -C out .
           ls -lh "mysql-${VER}-macos-arm64.tar.gz"
 

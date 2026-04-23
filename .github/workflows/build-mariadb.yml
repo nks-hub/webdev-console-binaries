@@ -294,6 +294,71 @@ jobs:
           find src/build -path '*/plugin/auth_pam/testing/cmake_install.cmake' \
             -exec sed -i.bak "s#DESTINATION \"/suite/plugins/pam\"#DESTINATION \"${PAM_TEST_DIR}\"#g" {} \;
           cmake --install src/build
+
+      # Bundle keg-only brew dylibs (openssl, pcre2, xz, boost, libevent,
+      # libiconv, ncurses, ...) into out/lib so MariaDB binaries run on
+      # Apple Silicon Macs without Homebrew. See build-mysql.yml for the
+      # same pattern and build-binaries.yml for the PHP equivalent.
+      - name: macOS — bundle brew dylibs (dylibbundler)
+        if: steps.existing.outputs.already != 'true'
+        shell: bash
+        run: |
+          PREFIX="$GITHUB_WORKSPACE/out"
+          brew install --quiet dylibbundler >/dev/null
+          mkdir -p "$PREFIX/lib"
+          TARGETS=()
+          for d in "$PREFIX/bin"; do
+            [ -d "$d" ] || continue
+            while IFS= read -r f; do
+              file "$f" 2>/dev/null | grep -q 'Mach-O' && TARGETS+=("$f")
+            done < <(find "$d" -maxdepth 1 -type f)
+          done
+          for d in "$PREFIX/lib/plugin" "$PREFIX/lib/mariadb/plugin"; do
+            [ -d "$d" ] || continue
+            while IFS= read -r f; do
+              case "$f" in *.dylib|*.so)
+                file "$f" 2>/dev/null | grep -q 'Mach-O' && TARGETS+=("$f") ;;
+              esac
+            done < <(find "$d" -maxdepth 1 -type f)
+          done
+          echo "Bundling ${#TARGETS[@]} Mach-O target(s)"
+          args=(-b -cd -of -d "$PREFIX/lib" -p "@rpath/")
+          for t in "${TARGETS[@]}"; do args+=(-x "$t"); done
+          for keg in openssl@3 openssl@1.1 pcre2 xz libevent icu4c \
+                     libiconv ncurses readline zlib boost lz4 zstd \
+                     gnutls nettle gmp; do
+            p=$(brew --prefix "$keg" 2>/dev/null || true)
+            [ -n "$p" ] && [ -d "$p/lib" ] && args+=(-s "$p/lib")
+          done
+          dylibbundler "${args[@]}" || echo "::warning::dylibbundler returned non-zero; will verify"
+          for t in "${TARGETS[@]}"; do
+            install_name_tool -add_rpath "@loader_path/../lib" "$t" 2>/dev/null || true
+            codesign --force -s - "$t" 2>/dev/null || true
+          done
+          leaked=""
+          for t in "${TARGETS[@]}" "$PREFIX"/lib/*.dylib; do
+            [ -f "$t" ] || continue
+            if otool -L "$t" 2>/dev/null | grep -qE '/opt/homebrew|/usr/local/opt'; then
+              leaked+=$'\n'"  $t"
+            fi
+          done
+          if [ -n "$leaked" ]; then
+            echo "::error::brew dylib refs leaked:$leaked"
+            exit 1
+          fi
+          echo "✓ MariaDB dependency graph is self-contained"
+
+      - name: Smoke test mariadbd --version
+        if: steps.existing.outputs.already != 'true'
+        shell: bash
+        run: |
+          "$GITHUB_WORKSPACE/out/bin/mariadbd" --version || "$GITHUB_WORKSPACE/out/bin/mysqld" --version
+
+      - name: Package tarball
+        if: steps.existing.outputs.already != 'true'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
           tar czf "mariadb-${VER}-macos-arm64.tar.gz" -C out .
           ls -lh "mariadb-${VER}-macos-arm64.tar.gz"
 
