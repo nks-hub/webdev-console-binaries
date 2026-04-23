@@ -321,6 +321,16 @@ jobs:
               esac
             done < <(find "$d" -maxdepth 1 -type f)
           done
+          # MariaDB's own shared libs (libmariadb.3.dylib, libmysqlclient.dylib, ...)
+          # also pull in brew deps; include them or the leak-detector below
+          # trips on their LC_LOAD_DYLIB to /opt/homebrew.
+          if [ -d "$PREFIX/lib" ]; then
+            while IFS= read -r f; do
+              case "$f" in *.dylib)
+                file "$f" 2>/dev/null | grep -q 'Mach-O' && TARGETS+=("$f") ;;
+              esac
+            done < <(find "$PREFIX/lib" -maxdepth 1 -type f)
+          fi
           echo "Bundling ${#TARGETS[@]} Mach-O target(s)"
           args=(-b -cd -of -d "$PREFIX/lib" -p "@rpath/")
           for t in "${TARGETS[@]}"; do args+=(-x "$t"); done

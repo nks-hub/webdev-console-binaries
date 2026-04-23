@@ -226,6 +226,17 @@ jobs:
               esac
             done < <(find "$d" -maxdepth 1 -type f)
           done
+          # MySQL ships several shared libs (libmysqlclient.22.dylib,
+          # libmysqlservices, libprotobuf-lite bundled as .dylibs) that
+          # link to /opt/homebrew themselves and would trip the leak
+          # detector below if we skipped them.
+          if [ -d "$PREFIX/lib" ]; then
+            while IFS= read -r f; do
+              case "$f" in *.dylib)
+                file "$f" 2>/dev/null | grep -q 'Mach-O' && TARGETS+=("$f") ;;
+              esac
+            done < <(find "$PREFIX/lib" -maxdepth 1 -type f)
+          fi
           echo "Bundling ${#TARGETS[@]} Mach-O target(s)"
           args=(-b -cd -of -d "$PREFIX/lib" -p "@rpath/")
           for t in "${TARGETS[@]}"; do args+=(-x "$t"); done
