@@ -366,9 +366,11 @@ jobs:
           CURL_FLAG="--with-curl"
           ZIP_FLAG="--with-zip"
           ZLIB_FLAG="--with-zlib"
+          OPENSSL_FLAG="--with-openssl"
           GMP_FLAG="--with-gmp"
           ICONV_FLAG="--with-iconv"
           READLINE_FLAG="--with-readline"
+          SQLITE_FLAGS="--with-pdo-sqlite --with-sqlite3"
           if [ "${{ matrix.target }}" = "macos-arm64" ]; then
             # Most brew formulae are keg-only on macOS, so PHP configure can't
             # find them via standard search paths. Pass explicit prefixes for
@@ -460,8 +462,11 @@ jobs:
               # ext/standard/dns (e.g. _res_9_search), so force link.
               export LIBS="-lresolv $LIBS"
               PG_FLAGS=""
+              SQLITE_FLAGS=""
               case "$MM" in
                 5.*|7.0)
+                  OPENSSL_FLAG=""
+                  ICONV_FLAG=""
                   GMP_FLAG=""
                   ;;
               esac
@@ -489,8 +494,8 @@ jobs:
             $INTL_FLAG --enable-pcntl --enable-sockets --enable-exif \
             --enable-ftp --enable-shmop --enable-sysvmsg --enable-sysvsem --enable-sysvshm \
             --enable-calendar --enable-dba \
-            --with-openssl $CURL_FLAG $ZIP_FLAG $ZLIB_FLAG $BZ2_FLAG \
-            --with-mysqli --with-pdo-mysql --with-pdo-sqlite --with-sqlite3 \
+            $OPENSSL_FLAG $CURL_FLAG $ZIP_FLAG $ZLIB_FLAG $BZ2_FLAG \
+            --with-mysqli --with-pdo-mysql $SQLITE_FLAGS \
             $PG_FLAGS \
             $ARGON2_FLAGS $SODIUM_FLAGS \
             $READLINE_FLAG --with-xsl $TIDY_FLAGS $LDAP_FLAGS $GETTEXT_FLAGS \
