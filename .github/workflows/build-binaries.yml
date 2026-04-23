@@ -400,7 +400,9 @@ jobs:
               ICONV_FLAG="--without-iconv"
               GMP_FLAG="--without-gmp"
               LDAP_FLAGS=""
-              PCRE_FLAG="--with-pcre-regex=$(brew --prefix pcre)"
+              if [ "$MM" = "5.*" ] || [ "$MM" = "7.0" ]; then
+                PCRE_FLAG="--without-pcre-regex"
+              fi
             fi
           fi
           # ── Comprehensive PHP build covering common framework + CMS workloads.
@@ -523,7 +525,7 @@ jobs:
           export PATH="$PREFIX/bin:$PATH"
           # Build deps for ext native libs
           if [ "${{ matrix.target }}" = "macos-arm64" ]; then
-            brew install --formula imagemagick libmemcached libyaml pcre pcre2 || true
+            brew install --formula imagemagick libmemcached libyaml pcre2 || true
             export LDFLAGS="-L$(brew --prefix libmemcached)/lib -L$(brew --prefix libyaml)/lib -L$(brew --prefix imagemagick)/lib $LDFLAGS"
             export CPPFLAGS="-I$(brew --prefix libmemcached)/include -I$(brew --prefix libyaml)/include -I$(brew --prefix imagemagick)/include $CPPFLAGS"
           else
