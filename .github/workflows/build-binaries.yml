@@ -401,6 +401,14 @@ jobs:
             export PKG_CONFIG_PATH="$SSL_PREFIX/lib/pkgconfig:$(brew --prefix icu4c)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix gmp)/lib/pkgconfig:$(brew --prefix libiconv)/lib/pkgconfig:$(brew --prefix readline)/lib/pkgconfig:${ZLIB_PREFIX}/lib/pkgconfig:$PKG_CONFIG_PATH"
             export LDFLAGS="-L$(brew --prefix gmp)/lib -L$(brew --prefix libiconv)/lib -L$(brew --prefix readline)/lib -L${ZLIB_PREFIX}/lib $LDFLAGS"
             export CPPFLAGS="-I$(brew --prefix gmp)/include -I$(brew --prefix libiconv)/include -I$(brew --prefix readline)/include -I${ZLIB_PREFIX}/include $CPPFLAGS"
+            # Homebrew GNU readline splits into libreadline + libhistory.
+            # PHP's ext/readline calls into append_history/history_list,
+            # which live in libhistory only. PHP's autoconf probe links
+            # just -lreadline, so without this linker fails on macOS 15:
+            #   Undefined symbol: _append_history, _history_list, ...
+            # Injecting -lhistory into LIBS (which autoconf appends after
+            # user CFLAGS) makes the dependency explicit.
+            export LIBS="-lhistory ${LIBS:-}"
             if [ "${{ env.legacy_ssl }}" = "true" ]; then
               # Homebrew icu4c now requires C++17 headers. PHP 7.4's intl
               # extension is C++ but its old build system does not request
