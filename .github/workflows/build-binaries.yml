@@ -396,6 +396,12 @@ jobs:
             # All keg-only formulae need explicit prefix; PHP gd-related flags
             # accept =PREFIX form per-library.
             GD_FLAGS="--enable-gd --with-jpeg=$(brew --prefix jpeg-turbo) --with-webp=$(brew --prefix webp) --with-freetype=$(brew --prefix freetype) --with-xpm=$(brew --prefix libxpm)"
+            if [ "${{ env.legacy_ssl }}" = "true" ]; then
+              # PHP 7.4's bundled GD configure test does not link Homebrew
+              # libxpm's X11 dependency chain cleanly on modern macOS.
+              # JPEG/WebP/Freetype cover the WDC use case; skip XPM here.
+              GD_FLAGS="--enable-gd --with-jpeg=$(brew --prefix jpeg-turbo) --with-webp=$(brew --prefix webp) --with-freetype=$(brew --prefix freetype)"
+            fi
             PG_FLAGS="--with-pgsql=$(brew --prefix libpq) --with-pdo-pgsql=$(brew --prefix libpq)"
             TIDY_FLAGS="--with-tidy=$(brew --prefix tidy-html5)"
             LDAP_FLAGS="--with-ldap=$(brew --prefix openldap)"
@@ -638,7 +644,7 @@ jobs:
 
       # Upload PECL manifest only for non-Windows slots (Windows build doesn't run install_pecl_ext).
       - name: Upload PECL manifest
-        if: matrix.target != 'windows-x64' && env.skip_source != 'true'
+        if: matrix.target != 'windows-x64' && env.skip_source != 'true' && (matrix.target == 'macos-arm64' || env.legacy_ssl != 'true')
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3.0.0
         with:
           tag_name: binaries-php-${{ steps.ver.outputs.version }}
