@@ -459,8 +459,18 @@ jobs:
               # macOS 15 no longer auto-resolves libresolv symbols used by
               # ext/standard/dns (e.g. _res_9_search), so force link.
               export LIBS="-lresolv $LIBS"
+              PG_FLAGS=""
+              case "$MM" in
+                5.*|7.0)
+                  GMP_FLAG=""
+                  ;;
+              esac
             fi
-            PG_FLAGS="--with-pgsql=$(brew --prefix libpq) --with-pdo-pgsql=$(brew --prefix libpq)"
+            if [ "${{ env.legacy_ssl }}" = "true" ]; then
+              PG_FLAGS=""
+            else
+              PG_FLAGS="--with-pgsql=$(brew --prefix libpq) --with-pdo-pgsql=$(brew --prefix libpq)"
+            fi
             TIDY_FLAGS="--with-tidy=$(brew --prefix tidy-html5)"
             LDAP_FLAGS="--with-ldap=$(brew --prefix openldap)"
             GETTEXT_FLAGS="--with-gettext=$(brew --prefix gettext)"
