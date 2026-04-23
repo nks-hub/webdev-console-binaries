@@ -398,6 +398,7 @@ jobs:
               OPENSSL_FLAG="--without-openssl"
               ICONV_FLAG="--without-iconv"
               GMP_FLAG="--without-gmp"
+              LDAP_FLAGS=""
             fi
           fi
           # ── Comprehensive PHP build covering common framework + CMS workloads.
@@ -430,7 +431,7 @@ jobs:
                 ARGON2_FLAGS=""
                 SODIUM_FLAGS=""
               fi
-              if [ "$MM" = "7.1" ] || [ "$MM" = "7.2" ] || [ "$MM" = "7.3" ]; then
+              if [ "$MM" = "5.*" ] || [ "$MM" = "7.0" ] || [ "$MM" = "7.1" ] || [ "$MM" = "7.2" ] || [ "$MM" = "7.3" ]; then
                 PCRE_JIT_FLAG="--without-pcre-jit"
               fi
               ZIP_FLAG="--enable-zip"
