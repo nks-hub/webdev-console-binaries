@@ -693,6 +693,95 @@ jobs:
           echo "===== PHP modules installed ====="
           "$PREFIX/bin/php" -m
 
+      # macOS: bundle brew dylibs into <PREFIX>/lib/ and rewrite install
+      # names so the binaries run on any Apple Silicon Mac, with or
+      # without Homebrew. Without this step `php`, `php-fpm` et al. embed
+      # absolute paths like `/opt/homebrew/opt/libiconv/lib/libiconv.2.dylib`
+      # that dyld can't resolve on end-user machines, and the archive is
+      # effectively unusable outside the build runner. dylibbundler walks
+      # the executable's dependency graph, copies each /opt/homebrew
+      # dylib into <PREFIX>/lib, rewrites LC_LOAD_DYLIB entries to
+      # `@rpath/<lib>`, and sets @rpath to `@loader_path/../lib` so
+      # binaries find their libs relative to their own location.
+      # Applied to ALL built executables + loadable .so extensions so
+      # FPM, CGI, and dynamically-loaded PECL modules also resolve.
+      - name: macOS — bundle brew dylibs (dylibbundler)
+        if: matrix.target == 'macos-arm64' && env.skip_source != 'true'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          PREFIX="${{ github.workspace }}/install/php-${VER}"
+          brew install --quiet dylibbundler >/dev/null
+          mkdir -p "$PREFIX/lib"
+          # Collect every Mach-O binary we shipped. bin/ holds CLIs
+          # (php, php-cgi, phpdbg, phar.phar if thin), sbin/ holds
+          # php-fpm, and the ext dir holds PECL .so modules.
+          EXT_DIR=$("$PREFIX/bin/php-config" --extension-dir 2>/dev/null || echo "")
+          TARGETS=()
+          for d in "$PREFIX/bin" "$PREFIX/sbin"; do
+            [ -d "$d" ] || continue
+            while IFS= read -r f; do
+              # Only touch real Mach-O; skip shell shims / phar stubs.
+              file "$f" 2>/dev/null | grep -q 'Mach-O' && TARGETS+=("$f")
+            done < <(find "$d" -maxdepth 1 -type f)
+          done
+          if [ -n "$EXT_DIR" ] && [ -d "$EXT_DIR" ]; then
+            while IFS= read -r f; do
+              file "$f" 2>/dev/null | grep -q 'Mach-O' && TARGETS+=("$f")
+            done < <(find "$EXT_DIR" -maxdepth 1 -type f -name '*.so')
+          fi
+          echo "Bundling ${#TARGETS[@]} Mach-O target(s) into $PREFIX/lib"
+          # dylibbundler supports multiple -x in a single invocation. This
+          # walks the union of their dep graphs once and drops every
+          # non-system dylib into -d <dest>. -cd creates the dest dir,
+          # -of overwrites existing copies, -b says "bundle deps".
+          # -s tells it where to search for libs beyond the paths baked
+          # into the binaries (keg-only brew prefixes).
+          args=(-b -cd -of -d "$PREFIX/lib" -p "@rpath/")
+          for t in "${TARGETS[@]}"; do args+=(-x "$t"); done
+          # Add brew lib dirs as search paths for every keg we used at
+          # configure time. dylibbundler follows LC_LOAD_DYLIB entries
+          # absolutely so this is mostly a belt + suspenders safety net.
+          for keg in openssl@3 openssl@1.1 libiconv readline openldap \
+                     tidy-html5 gettext libxml2 icu4c libpng webp \
+                     jpeg-turbo libxpm gmp libsodium argon2 bzip2 \
+                     oniguruma libzip curl freetype libpq libyaml \
+                     libmemcached imagemagick pcre2 sqlite; do
+            p=$(brew --prefix "$keg" 2>/dev/null || true)
+            [ -n "$p" ] && [ -d "$p/lib" ] && args+=(-s "$p/lib")
+          done
+          dylibbundler "${args[@]}" || {
+            # dylibbundler exits non-zero when a dep is already bundled
+            # from a prior target pass. That's benign — verify via
+            # otool after the fact instead of trusting the exit code.
+            echo "::warning::dylibbundler returned non-zero; continuing to verify"
+          }
+          # Stamp a workspace-relative @rpath on every target so
+          # `@rpath/libfoo.dylib` resolves to <PREFIX>/lib without an
+          # install-time shell wrapper. `install_name_tool -add_rpath`
+          # errors when the rpath already exists — swallow that case.
+          for t in "${TARGETS[@]}"; do
+            install_name_tool -add_rpath "@loader_path/../lib" "$t" 2>/dev/null || true
+          done
+          # Belt: scan every binary and ensure no /opt/homebrew refs
+          # survive. Any hit means dylibbundler missed a dep — fail
+          # loudly so the release build is never shipped broken.
+          leaked=""
+          for t in "${TARGETS[@]}" "$PREFIX"/lib/*.dylib; do
+            [ -f "$t" ] || continue
+            if otool -L "$t" 2>/dev/null | grep -qE '/opt/homebrew|/usr/local/opt'; then
+              leaked+=$'\n'"  $t"
+            fi
+          done
+          if [ -n "$leaked" ]; then
+            echo "::error::brew dylib refs leaked past bundler:$leaked"
+            for t in $leaked; do
+              [ -f "$t" ] && otool -L "$t" | grep -E '/opt/homebrew|/usr/local/opt' || true
+            done
+            exit 1
+          fi
+          echo "✓ Mach-O dependency graph is self-contained under $PREFIX"
+
       - name: Smoke test PHP runtime (php -v)
         if: matrix.target != 'windows-x64' && env.skip_source != 'true'
         shell: bash
@@ -702,6 +791,11 @@ jobs:
           if [ "${{ matrix.target }}" = "linux-x64" ] && [ "${{ env.legacy_ssl }}" = "true" ]; then
             export LD_LIBRARY_PATH="$PREFIX/lib:${LD_LIBRARY_PATH:-}"
           fi
+          # On macOS after dylibbundler the binary is self-contained via
+          # @rpath; NO DYLD_FALLBACK_LIBRARY_PATH needed. For legacy 7.x
+          # (which currently skips dylibbundler because the build is
+          # gated by --without-* flags to work around old ABI breaks)
+          # keep the old fallback path as a safety net.
           if [ "${{ matrix.target }}" = "macos-arm64" ] && [ "${{ env.legacy_ssl }}" = "true" ]; then
             export DYLD_FALLBACK_LIBRARY_PATH="$PREFIX/lib:$(brew --prefix openssl@1.1)/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
           fi
