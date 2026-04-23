@@ -397,10 +397,10 @@ jobs:
             # accept =PREFIX form per-library.
             GD_FLAGS="--enable-gd --with-jpeg=$(brew --prefix jpeg-turbo) --with-webp=$(brew --prefix webp) --with-freetype=$(brew --prefix freetype) --with-xpm=$(brew --prefix libxpm)"
             if [ "${{ env.legacy_ssl }}" = "true" ]; then
-              # PHP 7.4's bundled GD configure test does not link Homebrew
-              # libxpm's X11 dependency chain cleanly on modern macOS.
-              # JPEG/WebP/Freetype cover the WDC use case; skip XPM here.
-              GD_FLAGS="--enable-gd --with-jpeg=$(brew --prefix jpeg-turbo) --with-webp=$(brew --prefix webp) --with-freetype=$(brew --prefix freetype)"
+              # PHP 7.4's bundled GD configure test still fails on modern
+              # macOS/Homebrew even without XPM. To keep 7.4 shippable on
+              # Apple Silicon, disable GD in this legacy slot.
+              GD_FLAGS="--without-gd"
             fi
             PG_FLAGS="--with-pgsql=$(brew --prefix libpq) --with-pdo-pgsql=$(brew --prefix libpq)"
             TIDY_FLAGS="--with-tidy=$(brew --prefix tidy-html5)"
