@@ -467,15 +467,18 @@ jobs:
               export LIBS="-lresolv $LIBS"
               PG_FLAGS="--without-pgsql --without-pdo-pgsql"
               SQLITE_FLAGS="--without-pdo-sqlite --without-sqlite3"
+              ZIP_FLAG=""
+              ZLIB_FLAG=""
+              TIDY_FLAGS=""
+              LDAP_FLAGS=""
+              GETTEXT_FLAGS=""
             fi
-            if [ "${{ env.legacy_ssl }}" = "true" ]; then
-              PG_FLAGS=""
-            else
+            if [ "${{ env.legacy_ssl }}" != "true" ]; then
               PG_FLAGS="--with-pgsql=$(brew --prefix libpq) --with-pdo-pgsql=$(brew --prefix libpq)"
+              TIDY_FLAGS="--with-tidy=$(brew --prefix tidy-html5)"
+              LDAP_FLAGS="--with-ldap=$(brew --prefix openldap)"
+              GETTEXT_FLAGS="--with-gettext=$(brew --prefix gettext)"
             fi
-            TIDY_FLAGS="--with-tidy=$(brew --prefix tidy-html5)"
-            LDAP_FLAGS="--with-ldap=$(brew --prefix openldap)"
-            GETTEXT_FLAGS="--with-gettext=$(brew --prefix gettext)"
             case "$MM" in
               5.*|7.0|7.1) ;;
               *)
