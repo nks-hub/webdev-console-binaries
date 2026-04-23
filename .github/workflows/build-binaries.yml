@@ -556,7 +556,10 @@ jobs:
             8.1)         IMAGICK=3.7.0; XDEBUG=3.5.1; REDIS=6.3.0; MONGODB=2.2.1;  APCU=5.1.28; MEMCACHED=3.4.0; SWOOLE=6.1.7;  IGBINARY=3.2.16; YAML=2.2.5; OAUTH=2.0.10 ;;
             8.2|8.3)     IMAGICK=3.7.0; XDEBUG=3.5.1; REDIS=6.3.0; MONGODB=2.2.1;  APCU=5.1.28; MEMCACHED=3.4.0; SWOOLE=6.2.0;  IGBINARY=3.2.16; YAML=2.2.5; OAUTH=2.0.10 ;;
             8.4)         IMAGICK=3.8.1; XDEBUG=3.5.1; REDIS=6.3.0; MONGODB=2.2.1;  APCU=5.1.28; MEMCACHED=3.4.0; SWOOLE=6.2.0;  IGBINARY=3.2.16; YAML=2.2.5; OAUTH= ;;
-            8.5)         IMAGICK=3.8.1; XDEBUG=3.5.1; REDIS=6.3.0; MONGODB=2.2.1;  APCU=5.1.28; MEMCACHED=;      SWOOLE=6.2.0;  IGBINARY=3.2.16; YAML=2.2.5; OAUTH= ;;
+            # 8.5: igbinary 3.2.16 fails build (ext/standard/php_smart_string.h removed in PHP 8.5).
+            # Fix is in master (PR #404 php-8-5-tricky) but only released as 3.2.17RC1 (not stable on PECL).
+            # Skip until 3.2.17 stable ships; bump IGBINARY here when available.
+            8.5)         IMAGICK=3.8.1; XDEBUG=3.5.1; REDIS=6.3.0; MONGODB=2.2.1;  APCU=5.1.28; MEMCACHED=;      SWOOLE=6.2.0;  IGBINARY=;        YAML=2.2.5; OAUTH= ;;
           esac
           # Manifest accumulates per-extension truth so ops can audit what actually shipped.
           # Format (space-separated): STATUS <name> <version> [short_reason]
