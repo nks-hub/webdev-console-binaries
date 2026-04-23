@@ -361,6 +361,22 @@ jobs:
           echo "✓ SHA256 verified (php-${VER}.tar.xz): $actual"
           tar xf php-src.tar.xz
           cd php-${VER}
+          if [ "${{ matrix.target }}" = "macos-arm64" ] && [ "${{ env.legacy_ssl }}" = "true" ]; then
+            # PHP 5.6/7.0 bundled PCRE SLJIT on Apple Silicon misses the
+            # macOS cache-control declaration and fails on sys_icache_invalidate().
+            # Inject the canonical Apple header before configure/build.
+            python3 - <<'PY'
+from pathlib import Path
+path = Path("ext/pcre/pcrelib/sljit/sljitNativeARM_64.c")
+text = path.read_text()
+needle = "#include \"sljitConfigInternal.h\"\n"
+insert = needle + "#if defined(__APPLE__)\n#include <libkern/OSCacheControl.h>\n#endif\n"
+if "#include <libkern/OSCacheControl.h>" not in text:
+    if needle not in text:
+        raise SystemExit("sljitNativeARM_64.c include anchor missing")
+    path.write_text(text.replace(needle, insert, 1))
+PY
+          fi
           PREFIX="${{ github.workspace }}/install/php-${VER}"
           BZ2_FLAG="--with-bz2"
           CURL_FLAG="--with-curl"
