@@ -363,6 +363,7 @@ jobs:
           cd php-${VER}
           PREFIX="${{ github.workspace }}/install/php-${VER}"
           BZ2_FLAG="--with-bz2"
+          CURL_FLAG="--with-curl"
           ZIP_FLAG="--with-zip"
           ZLIB_FLAG="--with-zlib"
           GMP_FLAG="--with-gmp"
@@ -383,6 +384,7 @@ jobs:
               SSL_PREFIX="$(brew --prefix openssl@3)"
             fi
             ZLIB_PREFIX="$(brew --prefix zlib)"
+            CURL_FLAG="--with-curl=$(brew --prefix curl)"
             export PKG_CONFIG_PATH="$SSL_PREFIX/lib/pkgconfig:$(brew --prefix icu4c)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix gmp)/lib/pkgconfig:$(brew --prefix libiconv)/lib/pkgconfig:$(brew --prefix readline)/lib/pkgconfig:${ZLIB_PREFIX}/lib/pkgconfig:$PKG_CONFIG_PATH"
             export LDFLAGS="-L$(brew --prefix gmp)/lib -L$(brew --prefix libiconv)/lib -L$(brew --prefix readline)/lib -L${ZLIB_PREFIX}/lib $LDFLAGS"
             export CPPFLAGS="-I$(brew --prefix gmp)/include -I$(brew --prefix libiconv)/include -I$(brew --prefix readline)/include -I${ZLIB_PREFIX}/include $CPPFLAGS"
@@ -411,29 +413,21 @@ jobs:
           ARGON2_FLAGS="--with-password-argon2"
           SODIUM_FLAGS="--with-sodium"
           INTL_FLAG="--enable-intl"
+          PCRE_JIT_FLAG=""
           MM="${{ steps.ver.outputs.major_minor }}"
           # Feature gates by PHP minor:
           # - 5.6/7.0: ext/intl fails with modern icu4c -> disable intl.
           # - <7.2: no argon2/sodium configure switches.
           case "$MM" in
-            5.*|7.0)
+            5.*|7.0|7.1|7.2|7.3)
               INTL_FLAG="--disable-intl"
-              ARGON2_FLAGS=""
-              SODIUM_FLAGS=""
-              ZIP_FLAG="--enable-zip"
-              if [ "${{ matrix.target }}" = "macos-arm64" ]; then
-                ZLIB_FLAG="--with-zlib-dir=$(brew --prefix zlib)"
+              if [ "$MM" = "5.*" ] || [ "$MM" = "7.0" ] || [ "$MM" = "7.1" ]; then
+                ARGON2_FLAGS=""
+                SODIUM_FLAGS=""
               fi
-              ;;
-            7.1)
-              ARGON2_FLAGS=""
-              SODIUM_FLAGS=""
-              ZIP_FLAG="--enable-zip"
-              if [ "${{ matrix.target }}" = "macos-arm64" ]; then
-                ZLIB_FLAG="--with-zlib-dir=$(brew --prefix zlib)"
+              if [ "$MM" = "7.1" ] || [ "$MM" = "7.2" ] || [ "$MM" = "7.3" ]; then
+                PCRE_JIT_FLAG="--without-pcre-jit"
               fi
-              ;;
-            7.2|7.3)
               ZIP_FLAG="--enable-zip"
               if [ "${{ matrix.target }}" = "macos-arm64" ]; then
                 ZLIB_FLAG="--with-zlib-dir=$(brew --prefix zlib)"
@@ -485,11 +479,12 @@ jobs:
             $INTL_FLAG --enable-pcntl --enable-sockets --enable-exif \
             --enable-ftp --enable-shmop --enable-sysvmsg --enable-sysvsem --enable-sysvshm \
             --enable-calendar --enable-dba \
-            --with-openssl --with-curl $ZIP_FLAG $ZLIB_FLAG $BZ2_FLAG \
+            --with-openssl $CURL_FLAG $ZIP_FLAG $ZLIB_FLAG $BZ2_FLAG \
             --with-mysqli --with-pdo-mysql --with-pdo-sqlite --with-sqlite3 \
             $PG_FLAGS \
             $ARGON2_FLAGS $SODIUM_FLAGS \
             $READLINE_FLAG --with-xsl $TIDY_FLAGS $LDAP_FLAGS $GETTEXT_FLAGS \
+            $PCRE_JIT_FLAG \
             $GD_FLAGS \
             $GMP_FLAG $ICONV_FLAG
           make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) 2>&1 | tail -20
