@@ -252,7 +252,12 @@ jobs:
           # the targets you pass via -x, not their transitive dylib copies).
           # Stamp @loader_path on everything now + re-run dylibbundler on
           # each to chase the dependency graph down.
-          mapfile -t BUNDLED < <(find "$PREFIX/lib" -maxdepth 1 -type f \( -name '*.dylib' -o -name '*.so' \))
+          # macOS ships bash 3.2 where `mapfile` doesn't exist — use a
+          # plain for-loop with globbing to collect bundled libs. -nullglob
+          # keeps the loop silent when lib/ ends up empty.
+          shopt -s nullglob
+          BUNDLED=("$PREFIX"/lib/*.dylib "$PREFIX"/lib/*.so)
+          shopt -u nullglob
           # Fix transitive deps inside bundled libs (they reference each
           # other via @rpath too, so each bundled lib needs its own rpath).
           for bl in "${BUNDLED[@]}"; do

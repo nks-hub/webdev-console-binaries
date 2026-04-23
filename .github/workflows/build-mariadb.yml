@@ -341,7 +341,9 @@ jobs:
             [ -n "$p" ] && [ -d "$p/lib" ] && args+=(-s "$p/lib")
           done
           dylibbundler "${args[@]}" || echo "::warning::dylibbundler returned non-zero; will verify"
-          mapfile -t BUNDLED < <(find "$PREFIX/lib" -maxdepth 1 -type f \( -name '*.dylib' -o -name '*.so' \))
+          shopt -s nullglob
+          BUNDLED=("$PREFIX"/lib/*.dylib "$PREFIX"/lib/*.so)
+          shopt -u nullglob
           for bl in "${BUNDLED[@]}"; do
             install_name_tool -add_rpath "@loader_path/." "$bl" 2>/dev/null || true
             otool -L "$bl" 2>/dev/null | awk '/\/opt\/homebrew/ {print $1}' | while read dep; do
