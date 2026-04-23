@@ -395,6 +395,9 @@ jobs:
               # extension is C++ but its old build system does not request
               # a modern standard by itself.
               export CXXFLAGS="-std=c++17 $CXXFLAGS"
+              OPENSSL_FLAG="--without-openssl"
+              ICONV_FLAG="--without-iconv"
+              GMP_FLAG="--without-gmp"
             fi
           fi
           # ── Comprehensive PHP build covering common framework + CMS workloads.
@@ -461,15 +464,8 @@ jobs:
               # macOS 15 no longer auto-resolves libresolv symbols used by
               # ext/standard/dns (e.g. _res_9_search), so force link.
               export LIBS="-lresolv $LIBS"
-              PG_FLAGS=""
-              SQLITE_FLAGS=""
-              case "$MM" in
-                5.*|7.0)
-                  OPENSSL_FLAG=""
-                  ICONV_FLAG=""
-                  GMP_FLAG=""
-                  ;;
-              esac
+              PG_FLAGS="--without-pgsql --without-pdo-pgsql"
+              SQLITE_FLAGS="--without-pdo-sqlite --without-sqlite3"
             fi
             if [ "${{ env.legacy_ssl }}" = "true" ]; then
               PG_FLAGS=""
