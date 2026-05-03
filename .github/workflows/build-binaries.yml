@@ -692,10 +692,12 @@ jobs:
           # IMAP via PECL for 8.4+ (was removed from core in 8.4)
           case "$MM" in
             8.4|8.5)
+              IMAP_PECL_FLAGS=""
               if [ "${{ matrix.target }}" = "linux-x64" ]; then
                 sudo apt-get install -y -q libc-client-dev libkrb5-dev || true
+                IMAP_PECL_FLAGS="--with-kerberos --with-imap-ssl"
               fi
-              install_pecl_ext imap 1.0.3 || exit 1 ;;
+              install_pecl_ext imap 1.0.3 "$IMAP_PECL_FLAGS" || exit 1 ;;
           esac
           echo "===== PECL build manifest (${{ matrix.target }}) ====="
           cat "$MANIFEST"
