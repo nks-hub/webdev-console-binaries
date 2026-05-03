@@ -110,10 +110,12 @@ jobs:
           # target 404s and the actual download crashes mid-pipeline.
           for SUBDIR in "" archives/; do
             URL="https://windows.php.net/downloads/releases/${SUBDIR}php-${VER}-nts-Win32-${VS}-x64.zip"
-            if curl -fsIL "$URL" >/dev/null 2>&1; then break; fi
+            SUMS_URL="https://windows.php.net/downloads/releases/${SUBDIR}sha256sum.txt"
+            if curl -fsIL "$URL" >/dev/null 2>&1 && curl -fsIL "$SUMS_URL" >/dev/null 2>&1; then break; fi
             URL=""
+            SUMS_URL=""
           done
-          [ -z "$URL" ] && { echo "No Windows ZIP found for $VER"; exit 1; }
+          [ -z "$URL" ] && { echo "No verified Windows ZIP/checksum pair found for $VER"; exit 1; }
           curl -fsSL -o php-${VER}-windows-x64.zip "$URL"
           # ── Supply-chain verification: windows.php.net publishes a combined
           # sha256sum.txt per directory (releases/ or archives/). Fetch it,
@@ -122,9 +124,8 @@ jobs:
           # TODO(SECURITY.md roadmap): additionally verify GPG .asc signature
           # once the PHP release-manager keyring is bootstrapped into CI.
           ZIP_NAME="php-${VER}-nts-Win32-${VS}-x64.zip"
-          SUMS_URL="https://windows.php.net/downloads/releases/${SUBDIR}sha256sum.txt"
           curl -fsSL "$SUMS_URL" -o win-sha256sum.txt
-          expected=$(awk -v f="$ZIP_NAME" '$2 == "*"f {print $1}' win-sha256sum.txt)
+          expected=$(awk -v f="$ZIP_NAME" '$2 == f || $2 == "*"f {print $1}' win-sha256sum.txt)
           if [ -z "$expected" ]; then
             echo "::error::$ZIP_NAME not found in $SUMS_URL" >&2
             exit 1
