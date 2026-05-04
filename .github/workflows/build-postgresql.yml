@@ -1,0 +1,290 @@
+name: Build PostgreSQL Binaries
+
+on:
+  push:
+    tags:
+      - 'binaries-postgresql-*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'PostgreSQL version, e.g. 18.3 or 17.9'
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.inputs.version || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  windows-x64:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          if ('${{ github.event.inputs.version }}') {
+            $version = '${{ github.event.inputs.version }}'
+          } else {
+            $raw = $env:GITHUB_REF_NAME -replace '^binaries-postgresql-', ''
+            $version = $raw -replace '-r\d+$', ''
+          }
+          "version=$version" | Out-File $env:GITHUB_OUTPUT -Append
+
+      - name: Download EnterpriseDB Windows binaries
+        shell: pwsh
+        run: |
+          $version = '${{ steps.ver.outputs.version }}'
+          $url = "https://get.enterprisedb.com/postgresql/postgresql-$version-1-windows-x64-binaries.zip"
+          Invoke-WebRequest -Uri $url -OutFile upstream.zip
+          Expand-Archive upstream.zip -DestinationPath upstream -Force
+          $root = Get-ChildItem upstream -Directory | Select-Object -First 1
+          if (-not $root) { throw 'PostgreSQL zip did not contain a root directory' }
+          New-Item -ItemType Directory -Path stage -Force | Out-Null
+          Copy-Item -Path (Join-Path $root.FullName '*') -Destination stage -Recurse -Force
+          $version | Out-File stage/VERSION -Encoding ascii
+          if (-not (Test-Path stage/bin/postgres.exe)) { throw 'Missing stage/bin/postgres.exe' }
+          if (-not (Test-Path stage/bin/initdb.exe)) { throw 'Missing stage/bin/initdb.exe' }
+
+      - name: Smoke test PostgreSQL
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bin = Join-Path $PWD 'stage/bin'
+          & "$bin/postgres.exe" --version
+          $data = Join-Path $env:RUNNER_TEMP 'pgdata'
+          $log = Join-Path $env:RUNNER_TEMP 'postgres.log'
+          $port = 55432 + (Get-Random -Minimum 0 -Maximum 500)
+          & "$bin/initdb.exe" -D $data -A trust -U postgres --no-locale
+          & "$bin/pg_ctl.exe" -D $data -l $log -o "-p $port -h 127.0.0.1" start
+          try {
+            & "$bin/pg_isready.exe" -h 127.0.0.1 -p $port -U postgres -t 10
+            & "$bin/createdb.exe" -h 127.0.0.1 -p $port -U postgres wdc_smoke
+            & "$bin/psql.exe" -h 127.0.0.1 -p $port -U postgres -d wdc_smoke -c "select version();"
+            & "$bin/pg_dump.exe" -h 127.0.0.1 -p $port -U postgres -d wdc_smoke | Out-Null
+          } finally {
+            & "$bin/pg_ctl.exe" -D $data stop -m fast
+            if (Test-Path $log) { Get-Content $log -Tail 80 }
+          }
+
+      - name: Package zip
+        shell: pwsh
+        run: |
+          $version = '${{ steps.ver.outputs.version }}'
+          Compress-Archive -Path stage/* -DestinationPath "postgresql-$version-windows-x64.zip" -Force
+          Get-ChildItem "postgresql-$version-windows-x64.zip" | Format-List Name,Length
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3.0.0
+        with:
+          tag_name: binaries-postgresql-${{ steps.ver.outputs.version }}
+          name: PostgreSQL ${{ steps.ver.outputs.version }} (cross-platform binaries)
+          body: |
+            PostgreSQL ${{ steps.ver.outputs.version }} binaries for NKS WebDev Console's `wdc binaries install postgresql@${{ steps.ver.outputs.version }}` flow.
+
+            Windows x64 is repackaged from EnterpriseDB's official PostgreSQL binaries ZIP. Linux x64 and macOS arm64 assets, if present, are built from official PostgreSQL source and smoke-tested with initdb, pg_ctl, pg_isready, createdb, psql, pg_dump, and clean shutdown.
+          files: postgresql-${{ steps.ver.outputs.version }}-windows-x64.zip
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x64
+          - os: macos-15
+            platform: macos-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    steps:
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            RAW="${GITHUB_REF_NAME#binaries-postgresql-}"
+            VERSION="${RAW%-r*}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            sudo apt-get update
+            sudo apt-get install -y bison flex build-essential libreadline-dev zlib1g-dev libssl-dev pkg-config
+          else
+            brew update > /dev/null
+            brew install bison flex readline openssl@3 pkg-config
+            echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+            echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Download and verify source
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="${{ steps.ver.outputs.version }}"
+          BASE="https://ftp.postgresql.org/pub/source/v${VER}"
+          curl -fsSL -o "postgresql-${VER}.tar.bz2" "${BASE}/postgresql-${VER}.tar.bz2"
+          curl -fsSL -o "postgresql-${VER}.tar.bz2.sha256" "${BASE}/postgresql-${VER}.tar.bz2.sha256"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum -c "postgresql-${VER}.tar.bz2.sha256"
+          else
+            shasum -a 256 -c "postgresql-${VER}.tar.bz2.sha256"
+          fi
+          tar xjf "postgresql-${VER}.tar.bz2"
+          mv "postgresql-${VER}" src
+
+      - name: Configure
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            OPENSSL_ROOT="$(brew --prefix openssl@3)"
+            READLINE_ROOT="$(brew --prefix readline)"
+            export CPPFLAGS="-I${OPENSSL_ROOT}/include -I${READLINE_ROOT}/include"
+            export LDFLAGS="-L${OPENSSL_ROOT}/lib -L${READLINE_ROOT}/lib"
+          fi
+          cd src
+          ./configure --prefix="${GITHUB_WORKSPACE}/stage" --with-openssl
+
+      - name: Build and install
+        shell: bash
+        run: |
+          set -euo pipefail
+          make -C src -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu)"
+          make -C src install
+          echo "${{ steps.ver.outputs.version }}" > stage/VERSION
+          test -x stage/bin/postgres
+          test -x stage/bin/initdb
+
+      - name: Bundle macOS brew dylibs
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREFIX="$GITHUB_WORKSPACE/stage"
+          brew install --quiet dylibbundler >/dev/null
+          mkdir -p "$PREFIX/lib"
+          TARGETS=()
+          while IFS= read -r f; do
+            file "$f" 2>/dev/null | grep -q 'Mach-O' && TARGETS+=("$f")
+          done < <(find "$PREFIX/bin" "$PREFIX/lib" -type f 2>/dev/null)
+          echo "Bundling ${#TARGETS[@]} Mach-O target(s)"
+          args=(-b -cd -of -d "$PREFIX/lib" -p "@rpath/")
+          for t in "${TARGETS[@]}"; do args+=(-x "$t"); done
+          for keg in openssl@3 readline zlib icu4c lz4 zstd; do
+            p=$(brew --prefix "$keg" 2>/dev/null || true)
+            [ -n "$p" ] && [ -d "$p/lib" ] && args+=(-s "$p/lib")
+          done
+          dylibbundler "${args[@]}" || echo "::warning::dylibbundler returned non-zero; will verify"
+          shopt -s nullglob
+          BUNDLED=("$PREFIX"/lib/*.dylib "$PREFIX"/lib/*.so)
+          shopt -u nullglob
+          for bl in "${BUNDLED[@]}"; do
+            install_name_tool -add_rpath "@loader_path/." "$bl" 2>/dev/null || true
+            otool -L "$bl" 2>/dev/null | awk '/\/opt\/homebrew|\/usr\/local\/opt/ {print $1}' | while read dep; do
+              name=$(basename "$dep")
+              install_name_tool -change "$dep" "@rpath/$name" "$bl" 2>/dev/null || true
+            done
+            codesign --force -s - "$bl" 2>/dev/null || true
+          done
+          for t in "${TARGETS[@]}"; do
+            case "$t" in
+              "$PREFIX"/bin/*) install_name_tool -add_rpath "@loader_path/../lib" "$t" 2>/dev/null || true ;;
+              "$PREFIX"/lib/*) install_name_tool -add_rpath "@loader_path/." "$t" 2>/dev/null || true ;;
+            esac
+            codesign --force -s - "$t" 2>/dev/null || true
+          done
+          leaked=""
+          for t in "${TARGETS[@]}" "$PREFIX"/lib/*.dylib; do
+            [ -f "$t" ] || continue
+            if otool -L "$t" 2>/dev/null | grep -qE '/opt/homebrew|/usr/local/opt'; then
+              leaked+=$'\n'"  $t"
+            fi
+          done
+          if [ -n "$leaked" ]; then
+            echo "::error::brew dylib refs leaked:$leaked"
+            exit 1
+          fi
+
+      - name: Bundle Linux runtime shared libraries
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREFIX="$GITHUB_WORKSPACE/stage"
+          command -v patchelf >/dev/null 2>&1 || sudo apt-get install -y -q patchelf
+          mkdir -p "$PREFIX/lib"
+          collect_deps() {
+            ldd "$1" 2>/dev/null | awk '/=> \// {print $3}' | \
+              grep -Ev '/(ld-linux|libc|libm|libdl|libpthread|librt|libresolv|libutil|libnsl)[-.]' || true
+          }
+          for target in "$PREFIX/bin/"* "$PREFIX/lib/"*.so*; do
+            [ -f "$target" ] && collect_deps "$target"
+          done | sort -u | while read -r dep; do
+            [ -n "$dep" ] && cp -Lv "$dep" "$PREFIX/lib/"
+          done
+          for target in "$PREFIX/bin/"*; do
+            [ -f "$target" ] && [ -x "$target" ] && patchelf --set-rpath '$ORIGIN/../lib' "$target" 2>/dev/null || true
+          done
+          for so in "$PREFIX/lib/"*.so*; do
+            [ -f "$so" ] && [ ! -L "$so" ] && patchelf --set-rpath '$ORIGIN' "$so" 2>/dev/null || true
+          done
+          if ldd "$PREFIX/bin/postgres" | grep -qE '=> /(lib|usr/lib)/.*/(libssl|libcrypto|libreadline)'; then
+            echo "::error::postgres still has absolute runtime deps after RPATH rewrite"
+            ldd "$PREFIX/bin/postgres"
+            exit 1
+          fi
+
+      - name: Smoke test PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="${GITHUB_WORKSPACE}/stage/bin"
+          DATA="${RUNNER_TEMP}/pgdata"
+          LOG="${RUNNER_TEMP}/postgres.log"
+          PORT="$(python3 - <<'PY'
+          import socket
+          s = socket.socket()
+          s.bind(("127.0.0.1", 0))
+          print(s.getsockname()[1])
+          s.close()
+          PY
+          )"
+          "$BIN/postgres" --version
+          "$BIN/initdb" -D "$DATA" -A trust -U postgres --no-locale
+          "$BIN/pg_ctl" -D "$DATA" -l "$LOG" -o "-p $PORT -h 127.0.0.1" start
+          trap '"$BIN/pg_ctl" -D "$DATA" stop -m fast || true; [ -f "$LOG" ] && tail -80 "$LOG"' EXIT
+          "$BIN/pg_isready" -h 127.0.0.1 -p "$PORT" -U postgres -t 10
+          "$BIN/createdb" -h 127.0.0.1 -p "$PORT" -U postgres wdc_smoke
+          "$BIN/psql" -h 127.0.0.1 -p "$PORT" -U postgres -d wdc_smoke -c "select version();"
+          "$BIN/pg_dump" -h 127.0.0.1 -p "$PORT" -U postgres -d wdc_smoke >/tmp/wdc_smoke.sql
+
+      - name: Package tarball
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="${{ steps.ver.outputs.version }}"
+          tar czf "postgresql-${VER}-${{ matrix.platform }}.tar.gz" -C stage .
+          ls -lh "postgresql-${VER}-${{ matrix.platform }}.tar.gz"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3.0.0
+        with:
+          tag_name: binaries-postgresql-${{ steps.ver.outputs.version }}
+          files: postgresql-${{ steps.ver.outputs.version }}-${{ matrix.platform }}.tar.gz
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
