@@ -125,7 +125,7 @@ jobs:
             sudo apt-get install -y bison flex build-essential libreadline-dev zlib1g-dev libssl-dev pkg-config
           else
             brew update > /dev/null
-            brew install bison flex readline openssl@3 pkg-config
+            brew install bison flex readline openssl@3 icu4c pkg-config
             echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
             echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
           fi
@@ -153,8 +153,10 @@ jobs:
           if [ "${{ runner.os }}" = "macOS" ]; then
             OPENSSL_ROOT="$(brew --prefix openssl@3)"
             READLINE_ROOT="$(brew --prefix readline)"
-            export CPPFLAGS="-I${OPENSSL_ROOT}/include -I${READLINE_ROOT}/include"
-            export LDFLAGS="-L${OPENSSL_ROOT}/lib -L${READLINE_ROOT}/lib"
+            ICU_ROOT="$(brew --prefix icu4c)"
+            export CPPFLAGS="-I${OPENSSL_ROOT}/include -I${READLINE_ROOT}/include -I${ICU_ROOT}/include"
+            export LDFLAGS="-L${OPENSSL_ROOT}/lib -L${READLINE_ROOT}/lib -L${ICU_ROOT}/lib"
+            export PKG_CONFIG_PATH="${ICU_ROOT}/lib/pkgconfig:${OPENSSL_ROOT}/lib/pkgconfig:${READLINE_ROOT}/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
           fi
           cd src
           ./configure --prefix="${GITHUB_WORKSPACE}/stage" --with-openssl
@@ -234,7 +236,11 @@ jobs:
           for target in "$PREFIX/bin/"* "$PREFIX/lib/"*.so*; do
             [ -f "$target" ] && collect_deps "$target"
           done | sort -u | while read -r dep; do
-            [ -n "$dep" ] && cp -Lv "$dep" "$PREFIX/lib/"
+            [ -n "$dep" ] || continue
+            case "$(readlink -f "$dep")" in
+              "$(readlink -f "$PREFIX/lib")"/*) continue ;;
+            esac
+            cp -Lv "$dep" "$PREFIX/lib/"
           done
           for target in "$PREFIX/bin/"*; do
             [ -f "$target" ] && [ -x "$target" ] && patchelf --set-rpath '$ORIGIN/../lib' "$target" 2>/dev/null || true
