@@ -41,8 +41,6 @@ jobs:
           $version = '${{ steps.ver.outputs.version }}'
           $url = "https://get.enterprisedb.com/postgresql/postgresql-$version-1-windows-x64-binaries.zip"
           Invoke-WebRequest -Uri $url -OutFile upstream.zip
-          $hash = (Get-FileHash upstream.zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          "windows_sha256=$hash" | Out-File $env:GITHUB_ENV -Append
           Expand-Archive upstream.zip -DestinationPath upstream -Force
           $root = Get-ChildItem upstream -Directory | Select-Object -First 1
           if (-not $root) { throw 'PostgreSQL zip did not contain a root directory' }
@@ -140,7 +138,11 @@ jobs:
           BASE="https://ftp.postgresql.org/pub/source/v${VER}"
           curl -fsSL -o "postgresql-${VER}.tar.bz2" "${BASE}/postgresql-${VER}.tar.bz2"
           curl -fsSL -o "postgresql-${VER}.tar.bz2.sha256" "${BASE}/postgresql-${VER}.tar.bz2.sha256"
-          sha256sum -c "postgresql-${VER}.tar.bz2.sha256"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum -c "postgresql-${VER}.tar.bz2.sha256"
+          else
+            shasum -a 256 -c "postgresql-${VER}.tar.bz2.sha256"
+          fi
           tar xjf "postgresql-${VER}.tar.bz2"
           mv "postgresql-${VER}" src
 
