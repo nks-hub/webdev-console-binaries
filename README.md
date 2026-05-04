@@ -14,7 +14,7 @@ Public binary releases for [NKS WebDev Console](https://github.com/nks-hub/webde
 - ✅ **PHP 5.6 → 8.5** — twelve minor versions with comprehensive extension set (opcache, gd, intl, pdo_mysql/pgsql/sqlite, ldap, gettext, tidy, sodium, …) plus PECL: apcu, redis, xdebug, imagick, mongodb, swoole, memcached, igbinary, yaml, oauth, imap
 - ✅ **Apache 2.4** — full module catalog: mod_md (ACME / Let's Encrypt), mod_remoteip, http2, brotli, dav, cache, lua, ratelimit, session_crypto, socache_redis…
 - ✅ **MariaDB + MySQL** — official upstream mirrors plus source-built macOS arm64 (upstream doesn't ship arm64 pre-built tarballs)
-- ✅ **PostgreSQL** — Windows binaries from EnterpriseDB, Linux/macOS source builds with initdb/start/query/dump smoke tests
+- ✅ **PostgreSQL** — runtime-only Windows package from EnterpriseDB binaries, Linux/macOS source builds with initdb/start/query/dump smoke tests
 - ✅ **Nginx, Caddy** — modern web server alternatives with HTTP/2 + HTTP/3 support
 - ✅ **Redis** — TLS-enabled source build for Linux + macOS, community fork mirror for Windows
 - ✅ **mkcert + cloudflared** — local CA + Cloudflare Tunnel daemon mirrors
@@ -76,7 +76,7 @@ curl -L -o php.tar.xz \
 | `binaries-nginx-<X.Y.Z>`       | Win x64, macOS arm64, Linux x64      | source on Linux/Mac, nginx.org on Win          |
 | `binaries-mariadb-<X.Y.Z>`     | Win x64, Linux x64, macOS arm64      | upstream mirror + brew-bottle relocated macOS  |
 | `binaries-mysql-<X.Y.Z>`       | Win x64, Linux x64, macOS arm64      | dev.mysql.com mirror + brew-bottle relocated   |
-| `binaries-postgresql-<X.Y>`     | Win x64, Linux x64, macOS arm64      | EnterpriseDB Windows ZIP + source Linux/macOS   |
+| `binaries-postgresql-<X.Y>`     | Win x64, Linux x64, macOS arm64      | EnterpriseDB runtime subset + source Linux/macOS |
 | `binaries-redis-<X.Y.Z>`       | Win x64, macOS arm64, Linux x64      | source with TLS on Linux/Mac, fork on Win      |
 | `binaries-mkcert-<X.Y.Z>`      | Win x64, macOS arm64, Linux x64      | mirror of FiloSottile/mkcert                   |
 | `binaries-caddy-<X.Y.Z>`       | Win x64, macOS arm64, Linux x64      | mirror of caddyserver/caddy                    |
