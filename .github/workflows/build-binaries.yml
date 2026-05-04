@@ -110,10 +110,12 @@ jobs:
           # target 404s and the actual download crashes mid-pipeline.
           for SUBDIR in "" archives/; do
             URL="https://windows.php.net/downloads/releases/${SUBDIR}php-${VER}-nts-Win32-${VS}-x64.zip"
-            if curl -fsIL "$URL" >/dev/null 2>&1; then break; fi
+            SUMS_URL="https://windows.php.net/downloads/releases/${SUBDIR}sha256sum.txt"
+            if curl -fsIL "$URL" >/dev/null 2>&1 && curl -fsIL "$SUMS_URL" >/dev/null 2>&1; then break; fi
             URL=""
+            SUMS_URL=""
           done
-          [ -z "$URL" ] && { echo "No Windows ZIP found for $VER"; exit 1; }
+          [ -z "$URL" ] && { echo "No verified Windows ZIP/checksum pair found for $VER"; exit 1; }
           curl -fsSL -o php-${VER}-windows-x64.zip "$URL"
           # ── Supply-chain verification: windows.php.net publishes a combined
           # sha256sum.txt per directory (releases/ or archives/). Fetch it,
@@ -122,9 +124,8 @@ jobs:
           # TODO(SECURITY.md roadmap): additionally verify GPG .asc signature
           # once the PHP release-manager keyring is bootstrapped into CI.
           ZIP_NAME="php-${VER}-nts-Win32-${VS}-x64.zip"
-          SUMS_URL="https://windows.php.net/downloads/releases/${SUBDIR}sha256sum.txt"
           curl -fsSL "$SUMS_URL" -o win-sha256sum.txt
-          expected=$(awk -v f="$ZIP_NAME" '$2 == "*"f {print $1}' win-sha256sum.txt)
+          expected=$(awk -v f="$ZIP_NAME" '$2 == f || $2 == "*"f {print $1}' win-sha256sum.txt)
           if [ -z "$expected" ]; then
             echo "::error::$ZIP_NAME not found in $SUMS_URL" >&2
             exit 1
@@ -312,11 +313,11 @@ jobs:
         if: matrix.target == 'macos-arm64' && env.legacy_ssl == 'true' && env.skip_source != 'true'
         run: |
           test "$(uname -m)" = "arm64"
-          sudo xcode-select --switch /Applications/Xcode_16.4.app/Contents/Developer
+          sudo xcode-select --switch /Library/Developer/CommandLineTools
           xcodebuild -version
           xcrun --show-sdk-path
           brew install --formula autoconf bison openssl@1.1 sqlite zlib \
-            libzip libpng jpeg-turbo webp curl freetype gmp icu4c readline \
+            libzip libpng jpeg-turbo webp curl freetype gmp icu4c \
             oniguruma libsodium argon2 bzip2 libiconv libpq tidy-html5 libxpm \
             openldap gettext
 
@@ -417,6 +418,17 @@ jobs:
               OPENSSL_FLAG="--without-openssl"
               ICONV_FLAG="--without-iconv"
               GMP_FLAG="--without-gmp"
+              # Legacy PHP 5.6 on macOS 15 is unstable with brew's GNU
+              # readline. Hide it from configure entirely so the build falls
+              # back to the SDK/toolchain defaults instead of pulling in the
+              # unresolved readline symbol set.
+              READLINE_FLAG="--with-libedit=/usr"
+              export PKG_CONFIG_PATH="$SSL_PREFIX/lib/pkgconfig:$(brew --prefix icu4c)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix gmp)/lib/pkgconfig:$(brew --prefix libiconv)/lib/pkgconfig:${ZLIB_PREFIX}/lib/pkgconfig:$PKG_CONFIG_PATH"
+              export LDFLAGS="-L$(brew --prefix gmp)/lib -L$(brew --prefix libiconv)/lib -L${ZLIB_PREFIX}/lib $LDFLAGS"
+              export CPPFLAGS="-I$(brew --prefix gmp)/include -I$(brew --prefix libiconv)/include -I${ZLIB_PREFIX}/include $CPPFLAGS"
+              export ac_cv_lib_readline_readline=no
+              export ac_cv_lib_readline_rl_callback_read_char=no
+              export ac_cv_lib_readline_rl_on_new_line=no
               LDAP_FLAGS=""
               if [ "$MM" = "5.*" ] || [ "$MM" = "7.0" ]; then
                 PCRE_FLAG="--without-pcre-regex"
@@ -680,10 +692,12 @@ jobs:
           # IMAP via PECL for 8.4+ (was removed from core in 8.4)
           case "$MM" in
             8.4|8.5)
+              IMAP_PECL_FLAGS=""
               if [ "${{ matrix.target }}" = "linux-x64" ]; then
                 sudo apt-get install -y -q libc-client-dev libkrb5-dev || true
+                IMAP_PECL_FLAGS="--with-kerberos --with-imap-ssl"
               fi
-              install_pecl_ext imap 1.0.3 || exit 1 ;;
+              install_pecl_ext imap 1.0.3 "$IMAP_PECL_FLAGS" || exit 1 ;;
           esac
           echo "===== PECL build manifest (${{ matrix.target }}) ====="
           cat "$MANIFEST"
