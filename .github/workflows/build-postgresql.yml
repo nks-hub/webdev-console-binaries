@@ -35,7 +35,7 @@ jobs:
           }
           "version=$version" | Out-File $env:GITHUB_OUTPUT -Append
 
-      - name: Download EnterpriseDB Windows binaries
+      - name: Download and stage EnterpriseDB Windows runtime
         shell: pwsh
         run: |
           $version = '${{ steps.ver.outputs.version }}'
@@ -45,10 +45,18 @@ jobs:
           $root = Get-ChildItem upstream -Directory | Select-Object -First 1
           if (-not $root) { throw 'PostgreSQL zip did not contain a root directory' }
           New-Item -ItemType Directory -Path stage -Force | Out-Null
-          Copy-Item -Path (Join-Path $root.FullName '*') -Destination stage -Recurse -Force
+          foreach ($dir in @('bin', 'lib', 'share', 'include')) {
+            $src = Join-Path $root.FullName $dir
+            if (-not (Test-Path $src)) { throw "Missing upstream $dir directory" }
+            Copy-Item -Path $src -Destination stage -Recurse -Force
+          }
+          Remove-Item -Path (Join-Path $PWD 'stage/bin/stackbuilder.exe') -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path (Join-Path $PWD 'stage/bin/wx*.dll') -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path (Join-Path $PWD 'stage/bin/test*.exe') -Force -ErrorAction SilentlyContinue
           $version | Out-File stage/VERSION -Encoding ascii
           if (-not (Test-Path stage/bin/postgres.exe)) { throw 'Missing stage/bin/postgres.exe' }
           if (-not (Test-Path stage/bin/initdb.exe)) { throw 'Missing stage/bin/initdb.exe' }
+          if (Test-Path 'stage/pgAdmin 4') { throw 'pgAdmin must not be packaged' }
 
       - name: Smoke test PostgreSQL
         shell: pwsh
@@ -86,7 +94,7 @@ jobs:
           body: |
             PostgreSQL ${{ steps.ver.outputs.version }} binaries for NKS WebDev Console's `wdc binaries install postgresql@${{ steps.ver.outputs.version }}` flow.
 
-            Windows x64 is repackaged from EnterpriseDB's official PostgreSQL binaries ZIP. Linux x64 and macOS arm64 assets, if present, are built from official PostgreSQL source and smoke-tested with initdb, pg_ctl, pg_isready, createdb, psql, pg_dump, and clean shutdown.
+            Windows x64 is a runtime-only package staged from EnterpriseDB's official PostgreSQL binaries ZIP. Linux x64 and macOS arm64 assets, if present, are built from official PostgreSQL source and smoke-tested with initdb, pg_ctl, pg_isready, createdb, psql, pg_dump, and clean shutdown.
           files: postgresql-${{ steps.ver.outputs.version }}-windows-x64.zip
           fail_on_unmatched_files: true
         env:
