@@ -88,6 +88,7 @@ curl -L -o php.tar.xz \
 <!-- RELEASE_TABLE_START -->
 | Tag | Name | Published | Assets | Description |
 | --- | --- | --- | ---: | --- |
+| [binaries-postgresql-18.3](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-postgresql-18.3) | PostgreSQL 18.3 (cross-platform binaries) | 2026-05-04 | 3 | PostgreSQL 18.3 binaries for NKS WebDev Console's `wdc binaries install postgresql@18.3` flow. |
 | [binaries-mysql-9.6.0](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-mysql-9.6.0) | MySQL 9.6.0 (cross-platform binaries) | 2026-04-22 | 3 | Mirror of [MySQL 9.6.0](https://dev.mysql.com/downloads/mysql/) for use with NKS WebDev Console's `wdc binaries install mysql@9.6.0` flow... |
 | [binaries-mysql-8.4.8](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-mysql-8.4.8) | MySQL 8.4.8 (cross-platform binaries) | 2026-04-22 | 3 | Mirror of [MySQL 8.4.8](https://dev.mysql.com/downloads/mysql/) for use with NKS WebDev Console's `wdc binaries install mysql@8.4.8` flow... |
 | [binaries-mariadb-12.3.1](https://github.com/nks-hub/webdev-console-binaries/releases/tag/binaries-mariadb-12.3.1) | MariaDB 12.3.1 (cross-platform binaries) | 2026-04-18 | 4 | Mirror of [MariaDB 12.3.1](https://mariadb.org/download/?t=mariadb&p=mariadb&r=12.3.1) for use with NKS WebDev Console's `wdc binaries in... |
