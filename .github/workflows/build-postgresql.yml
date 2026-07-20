@@ -87,7 +87,7 @@ jobs:
           Get-ChildItem "postgresql-$version-windows-x64.zip" | Format-List Name,Length
 
       - name: Upload to release
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3.0.0
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3.0.2
         with:
           tag_name: binaries-postgresql-${{ steps.ver.outputs.version }}
           name: PostgreSQL ${{ steps.ver.outputs.version }} (cross-platform binaries)
@@ -295,7 +295,7 @@ jobs:
           ls -lh "postgresql-${VER}-${{ matrix.platform }}.tar.gz"
 
       - name: Upload to release
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3.0.0
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3.0.2
         with:
           tag_name: binaries-postgresql-${{ steps.ver.outputs.version }}
           files: postgresql-${{ steps.ver.outputs.version }}-${{ matrix.platform }}.tar.gz
