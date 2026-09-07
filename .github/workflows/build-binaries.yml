@@ -855,7 +855,7 @@ jobs:
       # booleans inside an action input.
       - name: Upload to release
         if: matrix.target == 'windows-x64' || env.skip_source != 'true'
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64  # v3.0.3
         with:
           tag_name: binaries-php-${{ steps.ver.outputs.version }}
           name: PHP ${{ steps.ver.outputs.version }} (cross-platform binaries)
@@ -872,7 +872,7 @@ jobs:
       # Upload PECL manifest only for non-Windows slots (Windows build doesn't run install_pecl_ext).
       - name: Upload PECL manifest
         if: matrix.target != 'windows-x64' && env.skip_source != 'true' && (matrix.target == 'macos-arm64' || env.legacy_ssl != 'true')
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64  # v3.0.3
         with:
           tag_name: binaries-php-${{ steps.ver.outputs.version }}
           fail_on_unmatched_files: true
@@ -912,7 +912,7 @@ jobs:
 
       - name: Upload SKIPPED marker to release
         if: matrix.target != 'windows-x64' && env.skip_source == 'true'
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64  # v3.0.3
         with:
           tag_name: binaries-php-${{ steps.ver.outputs.version }}
           name: PHP ${{ steps.ver.outputs.version }} (cross-platform binaries)
