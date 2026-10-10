@@ -1,4 +1,4 @@
-# NKS WebDev Console — Binaries
+# NKS WebDev Console Binaries
 
 [![Build](https://github.com/nks-hub/webdev-console-binaries/actions/workflows/build-binaries.yml/badge.svg)](https://github.com/nks-hub/webdev-console-binaries/actions)
 [![Latest Release](https://img.shields.io/github/v/release/nks-hub/webdev-console-binaries?label=release)](https://github.com/nks-hub/webdev-console-binaries/releases)
@@ -6,31 +6,31 @@
 [![Cross-platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](https://github.com/nks-hub/webdev-console-binaries/releases)
 [![Releases](https://img.shields.io/github/v/tag/nks-hub/webdev-console-binaries?label=tags)](https://github.com/nks-hub/webdev-console-binaries/tags)
 
-> Public binary releases for [NKS WebDev Console](https://github.com/nks-hub/webdev-console). Cross-platform PHP, Apache, Nginx, MariaDB, MySQL, PostgreSQL, Redis, mkcert, Caddy, cloudflared and Mailpit binaries built from upstream sources by GitHub Actions — ready for the WDC daemon's `wdc binaries install` flow over plain anonymous HTTPS.
+> Public binary releases for [NKS WebDev Console](https://github.com/nks-hub/webdev-console). Cross-platform PHP, Apache, Nginx, MariaDB, MySQL, PostgreSQL, Redis, mkcert, Caddy, cloudflared and Mailpit binaries built from upstream sources by GitHub Actions. The WDC daemon downloads them with `wdc binaries install` over anonymous HTTPS.
 
 ## Features
 
-- 🖥️ **Cross-platform matrix** — Windows x64, macOS arm64, Linux x64 for every supported app
-- 🐘 **PHP 5.6 → 8.5** — twelve minor versions with comprehensive extension set (opcache, gd, intl, pdo_mysql/pgsql/sqlite, ldap, gettext, tidy, sodium, …) plus PECL: apcu, redis, xdebug, imagick, mongodb, swoole, memcached, igbinary, yaml, oauth, imap
-- 🪶 **Apache 2.4** — full module catalog: mod_md (ACME / Let's Encrypt), mod_remoteip, http2, brotli, dav, cache, lua, ratelimit, session_crypto, socache_redis…
-- 🐬 **MariaDB + MySQL** — official upstream mirrors plus source-built macOS arm64 (upstream doesn't ship arm64 pre-built tarballs)
-- 🐘 **PostgreSQL** — runtime-only Windows package from EnterpriseDB binaries, Linux/macOS source builds with initdb/start/query/dump smoke tests
-- 🌐 **Nginx, Caddy** — modern web server alternatives with HTTP/2 + HTTP/3 support
-- 🧠 **Redis** — TLS-enabled source build for Linux + macOS, community fork mirror for Windows
-- 🔐 **mkcert + cloudflared** — local CA + Cloudflare Tunnel daemon mirrors
-- 📬 **Mailpit** — local SMTP testing catcher
-- 🐳 **Docker fallback** for legacy PHP — `ubuntu:20.04` container with OpenSSL 1.1 + libxml2 2.9 lets PHP 7.x build on modern Linux runners
-- ⬇️ **Anonymous HTTPS download** — no GitHub auth needed, works over plain `curl -L`
-- 🛡️ **SHA-256 verified** — upstream manifests checked before publishing
+- 🖥️ **Platform matrix** - Windows x64, macOS arm64 and Linux x64 for every supported app
+- 🐘 **PHP 5.6 → 8.5** - twelve minor versions with extensions (opcache, gd, intl, pdo_mysql/pgsql/sqlite, ldap, gettext, tidy, sodium, …) plus PECL: apcu, redis, xdebug, imagick, mongodb, swoole, memcached, igbinary, yaml, oauth, imap
+- 🪶 **Apache 2.4** - modules include mod_md (ACME / Let's Encrypt), mod_remoteip, http2, brotli, dav, cache, lua, ratelimit, session_crypto, socache_redis…
+- 🐬 **MariaDB + MySQL** - official upstream mirrors plus source-built macOS arm64 (upstream doesn't ship arm64 pre-built tarballs)
+- 🐘 **PostgreSQL** - runtime-only Windows package from EnterpriseDB binaries, Linux/macOS source builds with initdb/start/query/dump smoke tests
+- 🌐 **Nginx, Caddy** - web servers with HTTP/2 + HTTP/3 support
+- 🧠 **Redis** - TLS-enabled source build for Linux + macOS, community fork mirror for Windows
+- 🔐 **mkcert + cloudflared** - local CA + Cloudflare Tunnel daemon mirrors
+- 📬 **Mailpit** - local SMTP catcher for testing
+- 🐳 **Docker builds for old PHP** - `ubuntu:20.04` container with OpenSSL 1.1 + libxml2 2.9 lets PHP 7.x build on current Linux runners
+- ⬇️ **Anonymous HTTPS download** - no GitHub auth, plain `curl -L` works
+- 🛡️ **SHA-256 verified** - upstream manifests checked before publishing
 
 ## Requirements
 
 - WDC daemon ≥ 0.1.6 (catalog client expects `nks-hub-binaries` source field)
-- Anonymous HTTPS access to `github.com` (releases) — no authentication needed
+- Anonymous HTTPS access to `github.com` (releases), no authentication
 
 ## Quick Start
 
-The catalog API at [`wdc.nks-hub.cz`](https://github.com/nks-hub/wdc-catalog-api) resolves `app + version + OS + arch` to the right release URL automatically. The daemon never constructs URLs by hand.
+The catalog API at [`wdc.nks-hub.cz`](https://github.com/nks-hub/wdc-catalog-api) resolves `app + version + OS + arch` to the right release URL automatically. The daemon never constructs URLs by hand. Its `BinaryDownloader` calls `HttpClient.GetAsync(url)` without GitHub authentication, which is why the binaries live in this public repo and not in the source repo.
 
 ```bash
 # From the WDC daemon CLI:
@@ -40,18 +40,14 @@ wdc binaries install mariadb@11.4.4
 wdc binaries install postgresql@18.3
 ```
 
-Manual download via `curl` works the same way:
+Manual download with `curl`:
 
 ```bash
 curl -L -o php.tar.xz \
   https://github.com/nks-hub/webdev-console-binaries/releases/download/binaries-php-8.3.25/php-8.3.25-linux-x64.tar.xz
 ```
 
-## Why a separate repo?
-
-The WDC daemon's `BinaryDownloader` runs `HttpClient.GetAsync(url)` without GitHub authentication on every end-user machine. Hosting binaries in the (previously) private source-code repo would 404 for everyone. This separate public repo decouples binary distribution from source-code visibility — install URLs work anonymously.
-
-## Build Matrix
+## Build matrix
 
 ### PHP
 
@@ -83,7 +79,7 @@ The WDC daemon's `BinaryDownloader` runs `HttpClient.GetAsync(url)` without GitH
 | `binaries-cloudflared-<X.Y.Z>` | Win/Linux/macOS x64+arm64            | mirror of cloudflare/cloudflared               |
 | `binaries-mailpit-<X.Y.Z>`     | Win x64, macOS arm64, Linux x64      | mirror of axllent/mailpit                      |
 
-## Release Catalog
+## Release catalog
 
 <!-- RELEASE_TABLE_START -->
 | Tag | Name | Published | Assets | Description |
