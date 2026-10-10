@@ -1,36 +1,32 @@
+# NKS WebDev Console — Binaries
+
 [![Build](https://github.com/nks-hub/webdev-console-binaries/actions/workflows/build-binaries.yml/badge.svg)](https://github.com/nks-hub/webdev-console-binaries/actions)
 [![Latest Release](https://img.shields.io/github/v/release/nks-hub/webdev-console-binaries?label=release)](https://github.com/nks-hub/webdev-console-binaries/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Cross-platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](https://github.com/nks-hub/webdev-console-binaries/releases)
 [![Releases](https://img.shields.io/github/v/tag/nks-hub/webdev-console-binaries?label=tags)](https://github.com/nks-hub/webdev-console-binaries/tags)
 
-# NKS WebDev Console — Binaries
-
-Public binary releases for [NKS WebDev Console](https://github.com/nks-hub/webdev-console). Cross-platform PHP, Apache, Nginx, MariaDB, MySQL, PostgreSQL, Redis, mkcert, Caddy, cloudflared and Mailpit binaries built from upstream sources by GitHub Actions — ready for the WDC daemon's `wdc binaries install` flow over plain anonymous HTTPS.
+> Public binary releases for [NKS WebDev Console](https://github.com/nks-hub/webdev-console). Cross-platform PHP, Apache, Nginx, MariaDB, MySQL, PostgreSQL, Redis, mkcert, Caddy, cloudflared and Mailpit binaries built from upstream sources by GitHub Actions — ready for the WDC daemon's `wdc binaries install` flow over plain anonymous HTTPS.
 
 ## Features
 
-- ✅ **Cross-platform matrix** — Windows x64, macOS arm64, Linux x64 for every supported app
-- ✅ **PHP 5.6 → 8.5** — twelve minor versions with comprehensive extension set (opcache, gd, intl, pdo_mysql/pgsql/sqlite, ldap, gettext, tidy, sodium, …) plus PECL: apcu, redis, xdebug, imagick, mongodb, swoole, memcached, igbinary, yaml, oauth, imap
-- ✅ **Apache 2.4** — full module catalog: mod_md (ACME / Let's Encrypt), mod_remoteip, http2, brotli, dav, cache, lua, ratelimit, session_crypto, socache_redis…
-- ✅ **MariaDB + MySQL** — official upstream mirrors plus source-built macOS arm64 (upstream doesn't ship arm64 pre-built tarballs)
-- ✅ **PostgreSQL** — runtime-only Windows package from EnterpriseDB binaries, Linux/macOS source builds with initdb/start/query/dump smoke tests
-- ✅ **Nginx, Caddy** — modern web server alternatives with HTTP/2 + HTTP/3 support
-- ✅ **Redis** — TLS-enabled source build for Linux + macOS, community fork mirror for Windows
-- ✅ **mkcert + cloudflared** — local CA + Cloudflare Tunnel daemon mirrors
-- ✅ **Mailpit** — local SMTP testing catcher
-- ✅ **Docker fallback** for legacy PHP — `ubuntu:20.04` container with OpenSSL 1.1 + libxml2 2.9 lets PHP 7.x build on modern Linux runners
-- ✅ **Anonymous HTTPS download** — no GitHub auth needed, works over plain `curl -L`
-- ✅ **SHA-256 verified** — upstream manifests checked before publishing
+- 🖥️ **Cross-platform matrix** — Windows x64, macOS arm64, Linux x64 for every supported app
+- 🐘 **PHP 5.6 → 8.5** — twelve minor versions with comprehensive extension set (opcache, gd, intl, pdo_mysql/pgsql/sqlite, ldap, gettext, tidy, sodium, …) plus PECL: apcu, redis, xdebug, imagick, mongodb, swoole, memcached, igbinary, yaml, oauth, imap
+- 🪶 **Apache 2.4** — full module catalog: mod_md (ACME / Let's Encrypt), mod_remoteip, http2, brotli, dav, cache, lua, ratelimit, session_crypto, socache_redis…
+- 🐬 **MariaDB + MySQL** — official upstream mirrors plus source-built macOS arm64 (upstream doesn't ship arm64 pre-built tarballs)
+- 🐘 **PostgreSQL** — runtime-only Windows package from EnterpriseDB binaries, Linux/macOS source builds with initdb/start/query/dump smoke tests
+- 🌐 **Nginx, Caddy** — modern web server alternatives with HTTP/2 + HTTP/3 support
+- 🧠 **Redis** — TLS-enabled source build for Linux + macOS, community fork mirror for Windows
+- 🔐 **mkcert + cloudflared** — local CA + Cloudflare Tunnel daemon mirrors
+- 📬 **Mailpit** — local SMTP testing catcher
+- 🐳 **Docker fallback** for legacy PHP — `ubuntu:20.04` container with OpenSSL 1.1 + libxml2 2.9 lets PHP 7.x build on modern Linux runners
+- ⬇️ **Anonymous HTTPS download** — no GitHub auth needed, works over plain `curl -L`
+- 🛡️ **SHA-256 verified** — upstream manifests checked before publishing
 
 ## Requirements
 
 - WDC daemon ≥ 0.1.6 (catalog client expects `nks-hub-binaries` source field)
 - Anonymous HTTPS access to `github.com` (releases) — no authentication needed
-
-## Why a separate repo?
-
-The WDC daemon's `BinaryDownloader` runs `HttpClient.GetAsync(url)` without GitHub authentication on every end-user machine. Hosting binaries in the (previously) private source-code repo would 404 for everyone. This separate public repo decouples binary distribution from source-code visibility — install URLs work anonymously.
 
 ## Quick Start
 
@@ -50,6 +46,10 @@ Manual download via `curl` works the same way:
 curl -L -o php.tar.xz \
   https://github.com/nks-hub/webdev-console-binaries/releases/download/binaries-php-8.3.25/php-8.3.25-linux-x64.tar.xz
 ```
+
+## Why a separate repo?
+
+The WDC daemon's `BinaryDownloader` runs `HttpClient.GetAsync(url)` without GitHub authentication on every end-user machine. Hosting binaries in the (previously) private source-code repo would 404 for everyone. This separate public repo decouples binary distribution from source-code visibility — install URLs work anonymously.
 
 ## Build Matrix
 
@@ -132,12 +132,12 @@ Each app has a dedicated workflow (`build-php.yml`, `build-apache.yml`, `build-m
 
 ## Contributing
 
-Contributions are welcome! New binary requests should open an [issue](https://github.com/nks-hub/webdev-console-binaries/issues/new/choose) describing the upstream source, target platforms, and intended consumer (which WDC plugin will use it).
+Contributions are welcome! New binary requests should open an [issue](https://github.com/nks-hub/webdev-console-binaries/issues/new/choose) describing the upstream source, target platforms, and intended consumer (which WDC plugin will use it). Add or modify a workflow under `.github/workflows/` and test it with a pre-release tag (`binaries-<app>-<version>-rc1`).
 
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feat/new-app-build`)
-3. Add or modify a workflow under `.github/workflows/`
-4. Test with a pre-release tag (`binaries-<app>-<version>-rc1`)
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'feat: description'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
 ## Support
@@ -150,7 +150,7 @@ Contributions are welcome! New binary requests should open an [issue](https://gi
 
 ## License
 
-[MIT](LICENSE) for the build scripts, workflow definitions, and documentation in this repository. Each published binary retains its upstream license — see [LICENSE](LICENSE) for the per-app summary.
+MIT License — see [LICENSE](LICENSE) for details. The MIT license covers the build scripts, workflow definitions, and documentation in this repository; each published binary retains its upstream license (see [LICENSE](LICENSE) for the per-app summary).
 
 ---
 
