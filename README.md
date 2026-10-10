@@ -141,8 +141,8 @@ Contributions are welcome! New binary requests should open an [issue](https://gi
 - 📧 **Email:** dev@nks-hub.cz
 - 🐛 **Bug reports:** [GitHub Issues](https://github.com/nks-hub/webdev-console-binaries/issues)
 - 🔗 **Main project:** [nks-hub/webdev-console](https://github.com/nks-hub/webdev-console)
-- 🔒 **Security:** [SECURITY.md](SECURITY.md) — disclosure policy
-- 📜 **History:** [CHANGELOG.md](CHANGELOG.md) — release notes
+- 🔒 **Security:** [SECURITY.md](SECURITY.md) (disclosure policy)
+- 📜 **History:** [CHANGELOG.md](CHANGELOG.md) (release notes)
 
 ## License
 
