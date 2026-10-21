@@ -2,6 +2,10 @@
 
 All notable releases produced by this repository's workflows. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); each section is keyed by the `binaries-<app>-<version>` tag.
 
+## binaries-php-{5.6.40, 7.0.33, 7.1.33, 7.2.34, 7.3.33, 7.4.33, 8.0.30, 8.1.34} Windows x64 - 2026-10-21
+
+The Windows ZIPs of these tags are rebuilt from the php.net source tarballs with the CVE-2026-109618 / CVE-2026-109619 backports from `.github/workflows/assets/patches/` applied (7.1-7.3 also get the `ZSTR_MAX_LEN` backport). php.net ships no fixed Windows builds for these branches, so the repackaged windows.php.net ZIPs are replaced. File name (`php-<version>-windows-x64.zip`), NTS and layout are unchanged. Toolsets: 5.6 VC11, 7.0/7.1 VC14, 7.2-7.4 VC15, 8.0/8.1 VS16, with dependencies from the PHP SDK deps for the matching VC. `oci8` and `pdo_oci` are not built (no Oracle client). The patched `php5.dll` / `php7.dll` / `php8.dll` contain `zend_mm_safe_error_ex`; the replaced ZIPs did not.
+
 ## binaries-php-* (initial cross-platform builds)
 
 ### `binaries-php-{7.4.33, 8.0.30, 8.1.33, 8.2.30, 8.3.25, 8.4.20, 8.5.5}` — 2026-04-17
