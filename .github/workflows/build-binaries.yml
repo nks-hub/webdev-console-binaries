@@ -270,6 +270,11 @@ jobs:
             # already checked against PHP.net /releases/?json manifest).
             cp /work/php-src.tar.xz /tmp/php-src.tar.xz
             cd /tmp && tar xf php-src.tar.xz && cd php-${VER}
+            for p in /work/.github/workflows/assets/patches/${{ steps.ver.outputs.major_minor }}/*.patch; do
+              [ -e \"\$p\" ] || continue
+              echo \"Applying \$p\"
+              patch -p1 --forward < \"\$p\"
+            done
             ./configure --prefix=/work/install/php-${VER} \
               --enable-fpm --enable-mbstring --enable-bcmath --enable-soap \
               --enable-intl --enable-pcntl --enable-sockets --enable-exif \
@@ -362,6 +367,13 @@ jobs:
           echo "✓ SHA256 verified (php-${VER}.tar.xz): $actual"
           tar xf php-src.tar.xz
           cd php-${VER}
+          # Security backports for branches php.net no longer releases
+          # (assets/patches/<major.minor>/*.patch, applied in name order).
+          for p in "${{ github.workspace }}/.github/workflows/assets/patches/${{ steps.ver.outputs.major_minor }}"/*.patch; do
+            [ -e "$p" ] || continue
+            echo "Applying $p"
+            patch -p1 --forward < "$p"
+          done
           if [ "${{ matrix.target }}" = "macos-arm64" ] && [ "${{ env.legacy_ssl }}" = "true" ]; then
             # PHP 5.6/7.0 bundled PCRE SLJIT on Apple Silicon misses the
             # macOS cache-control declaration and fails on sys_icache_invalidate().
