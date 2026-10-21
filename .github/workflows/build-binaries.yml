@@ -22,6 +22,11 @@ on:
         description: 'PHP version, e.g. 8.3.25'
         required: true
         type: string
+      only_target:
+        description: 'Build only this matrix target (e.g. linux-x64); empty = all'
+        required: false
+        default: ''
+        type: string
 
 concurrency:
   # Serialize runs targeting the same release tag so -r2/-r3 retry
@@ -39,16 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-2022
-            target: windows-x64
-            ext: zip
-          - os: macos-15
-            target: macos-arm64
-            ext: tar.xz
-          - os: ubuntu-24.04
-            target: linux-x64
-            ext: tar.xz
+        include: ${{ fromJSON(github.event.inputs.only_target == 'linux-x64' && '[{"os":"ubuntu-24.04","target":"linux-x64","ext":"tar.xz"}]' || '[{"os":"windows-2022","target":"windows-x64","ext":"zip"},{"os":"macos-15","target":"macos-arm64","ext":"tar.xz"},{"os":"ubuntu-24.04","target":"linux-x64","ext":"tar.xz"}]') }}
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -154,24 +150,13 @@ jobs:
           MM="${{ steps.ver.outputs.major_minor }}"
           TGT="${{ matrix.target }}"
           # Defaults
-          SKIP=false; LEGACY=false
+          SKIP=false; LEGACY=false; ANCIENT=false
           case "$MM" in
-            5.*)
-              # Keep Linux skipped for PHP 5.x (too old for current container
-              # recipe), but try macOS legacy source build.
+            5.*|7.0)
+              # Linux: ubuntu:16.04 container (OpenSSL 1.0.2, ICU 55), see
+              # assets/build-legacy-ubuntu16.sh. macOS legacy path unchanged.
               LEGACY=true
-              if [ "$TGT" = "linux-x64" ]; then
-                SKIP=true
-                echo "::warning::PHP $MM Linux build skipped (legacy toolchain incompatibility)"
-              fi ;;
-            7.0)
-              # PHP 7.0 still has ICU drift issues on Linux legacy container;
-              # keep Linux skipped but allow macOS legacy build path.
-              LEGACY=true
-              if [ "$TGT" = "linux-x64" ]; then
-                SKIP=true
-                echo "::warning::PHP $MM Linux build skipped (ICU/toolchain incompatibility)"
-              fi ;;
+              if [ "$TGT" = "linux-x64" ]; then ANCIENT=true; fi ;;
             7.*|8.0)
               # 7.x and 8.0 compile on Linux via docker:ubuntu:20.04 (OpenSSL 1.1.1,
               # libxml2 2.9). macOS has two independent ABI breaks vs legacy PHP:
@@ -192,6 +177,7 @@ jobs:
           esac
           echo "skip_source=$SKIP" >> $GITHUB_ENV
           echo "legacy_ssl=$LEGACY" >> $GITHUB_ENV
+          echo "ancient_linux=$ANCIENT" >> $GITHUB_ENV
 
       - name: Windows — smoke test php -v
         if: matrix.target == 'windows-x64'
@@ -223,7 +209,7 @@ jobs:
 
       # Linux legacy (7.x, 8.0): docker container with ubuntu:20.04 → OpenSSL 1.1.1
       - name: Linux — build legacy PHP in docker (ubuntu:20.04, openssl 1.1)
-        if: matrix.target == 'linux-x64' && env.legacy_ssl == 'true' && env.skip_source != 'true'
+        if: matrix.target == 'linux-x64' && env.legacy_ssl == 'true' && env.ancient_linux != 'true' && env.skip_source != 'true'
         shell: bash
         run: |
           VER="${{ steps.ver.outputs.version }}"
@@ -305,6 +291,27 @@ jobs:
             # depend on distro-provided libicu66.
             cp -L /usr/lib/x86_64-linux-gnu/libicu*.so.66 /dst/lib/ || true
           "
+
+      # Linux ancient (5.6, 7.0): ubuntu:16.04 → OpenSSL 1.0.2, ICU 55. Libs are
+      # bundled under lib/ with RPATH $ORIGIN/../lib by the build script.
+      - name: Linux — build PHP 5.6/7.0 in docker (ubuntu:16.04, openssl 1.0.2)
+        if: matrix.target == 'linux-x64' && env.ancient_linux == 'true' && env.skip_source != 'true'
+        shell: bash
+        env:
+          VER: ${{ steps.ver.outputs.version }}
+          MM: ${{ steps.ver.outputs.major_minor }}
+        run: |
+          mkdir -p "${{ github.workspace }}/install/php-${VER}"
+          curl -fsSL "https://www.php.net/distributions/php-${VER}.tar.xz" -o php-src.tar.xz
+          curl -fsSL "https://www.php.net/releases/?json&version=${VER}" -o php-release.json
+          expected=$(python3 -c "import json,sys; d=json.load(open('php-release.json')); print(next(s['sha256'] for s in d['source'] if s['filename']==f'php-${VER}.tar.xz'))")
+          actual=$(sha256sum php-src.tar.xz | awk '{print $1}')
+          if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+            echo "::error::SHA256 mismatch for php-${VER}.tar.xz — expected '$expected', got '$actual'" >&2
+            exit 1
+          fi
+          echo "✓ SHA256 verified (php-${VER}.tar.xz): $actual"
+          docker run --rm -v "${{ github.workspace }}:/work" -w /work ubuntu:16.04             bash /work/.github/workflows/assets/build-legacy-ubuntu16.sh "$VER" "$MM"
 
       # macOS modern (8.1+): brew openssl@3 + libiconv (for PHP iconv ext)
       - name: macOS — install build deps (modern openssl3)
