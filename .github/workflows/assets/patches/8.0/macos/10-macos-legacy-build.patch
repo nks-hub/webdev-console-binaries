@@ -1,0 +1,34 @@
+diff -ruN a/ext/dom/dom_iterators.c b/ext/dom/dom_iterators.c
+--- a/ext/dom/dom_iterators.c	2023-08-03 19:13:08
++++ b/ext/dom/dom_iterators.c	2026-10-21 21:56:42
+@@ -41,7 +41,7 @@
+ #if LIBXML_VERSION >= 20908
+ static void itemHashScanner (void *payload, void *data, const xmlChar *name) /* {{{ */
+ #else
+-static void itemHashScanner (void *payload, void *data, xmlChar *name)
++static void itemHashScanner (void *payload, void *data, const xmlChar *name)
+ #endif
+ {
+ 	nodeIterator *priv = (nodeIterator *)data;
+diff -ruN a/ext/mbstring/libmbfl/filters/mbfilter_utf8_mobile.c b/ext/mbstring/libmbfl/filters/mbfilter_utf8_mobile.c
+--- a/ext/mbstring/libmbfl/filters/mbfilter_utf8_mobile.c	2023-08-03 19:13:08
++++ b/ext/mbstring/libmbfl/filters/mbfilter_utf8_mobile.c	2026-10-21 21:56:42
+@@ -34,6 +34,7 @@
+ 
+ extern int mbfl_filt_ident_utf8(int c, mbfl_identify_filter *filter);
+ extern int mbfl_filt_conv_utf8_wchar_flush(mbfl_convert_filter *filter);
++extern int mbfl_filt_put_invalid_char(int c, mbfl_convert_filter *filter);
+ 
+ extern const unsigned char mblen_table_utf8[];
+ 
+diff -ruN a/ext/pcre/pcre2lib/sljit/sljitConfigInternal.h b/ext/pcre/pcre2lib/sljit/sljitConfigInternal.h
+--- a/ext/pcre/pcre2lib/sljit/sljitConfigInternal.h	2023-08-03 19:13:08
++++ b/ext/pcre/pcre2lib/sljit/sljitConfigInternal.h	2026-10-21 21:56:42
+@@ -334,6 +334,7 @@
+ #define SLJIT_CACHE_FLUSH(from, to)
+ 
+ #elif defined __APPLE__
++#include <libkern/OSCacheControl.h>
+ 
+ /* Supported by all macs since Mac OS 10.5.
+    However, it does not work on non-jailbroken iOS devices,

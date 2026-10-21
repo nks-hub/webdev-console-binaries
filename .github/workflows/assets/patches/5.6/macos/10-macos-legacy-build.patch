@@ -1,0 +1,86 @@
+diff -ruN a/ext/dom/dom_iterators.c b/ext/dom/dom_iterators.c
+--- a/ext/dom/dom_iterators.c	2019-01-09 10:54:13
++++ b/ext/dom/dom_iterators.c	2026-10-21 21:56:10
+@@ -42,7 +42,7 @@
+ 	xmlNotation *notation;
+ };
+ 
+-static void itemHashScanner (void *payload, void *data, xmlChar *name) /* {{{ */
++static void itemHashScanner (void *payload, void *data, const xmlChar *name) /* {{{ */
+ {
+ 	nodeIterator *priv = (nodeIterator *)data;
+ 
+@@ -223,7 +223,7 @@
+ 					} else {
+ 						goto err;
+ 					}
+-					curnode = dom_get_elements_by_tag_name_ns_raw(basenode, objmap->ns, objmap->local, &previndex, iter->index);
++					curnode = dom_get_elements_by_tag_name_ns_raw(basenode, (char *) objmap->ns, (char *) objmap->local, &previndex, iter->index);
+ 				}
+ 			}
+ 		} else {
+@@ -303,7 +303,7 @@
+ 					} else {
+ 						nodep = nodep->children;
+ 					}
+-					curnode = dom_get_elements_by_tag_name_ns_raw(nodep, objmap->ns, objmap->local, &curindex, 0);
++					curnode = dom_get_elements_by_tag_name_ns_raw(nodep, (char *) objmap->ns, (char *) objmap->local, &curindex, 0);
+ 				}
+ 			}
+ 		} else {
+diff -ruN a/ext/fileinfo/libmagic/funcs.c b/ext/fileinfo/libmagic/funcs.c
+--- a/ext/fileinfo/libmagic/funcs.c	2019-01-09 10:54:13
++++ b/ext/fileinfo/libmagic/funcs.c	2026-10-21 21:56:10
+@@ -437,7 +437,7 @@
+ 	return ms->o.buf == NULL ? 0 : strlen(ms->o.buf);
+ }
+ 
+-file_replace(struct magic_set *ms, const char *pat, const char *rep)
++int file_replace(struct magic_set *ms, const char *pat, const char *rep)
+ {
+ 	zval *patt;
+ 	int opts = 0;
+diff -ruN a/ext/mbstring/libmbfl/filters/mbfilter_utf8_mobile.c b/ext/mbstring/libmbfl/filters/mbfilter_utf8_mobile.c
+--- a/ext/mbstring/libmbfl/filters/mbfilter_utf8_mobile.c	2019-01-09 10:54:13
++++ b/ext/mbstring/libmbfl/filters/mbfilter_utf8_mobile.c	2026-10-21 21:56:10
+@@ -38,6 +38,7 @@
+ 
+ extern int mbfl_filt_ident_utf8(int c, mbfl_identify_filter *filter);
+ extern int mbfl_filt_conv_utf8_wchar_flush(mbfl_convert_filter *filter);
++extern int mbfl_filt_put_invalid_char(int c, mbfl_convert_filter *filter);
+ 
+ extern const unsigned char mblen_table_utf8[];
+ 
+diff -ruN a/ext/pcre/pcrelib/sljit/sljitConfigInternal.h b/ext/pcre/pcrelib/sljit/sljitConfigInternal.h
+--- a/ext/pcre/pcrelib/sljit/sljitConfigInternal.h	2019-01-09 10:54:13
++++ b/ext/pcre/pcrelib/sljit/sljitConfigInternal.h	2026-10-21 21:56:10
+@@ -292,6 +292,7 @@
+ #define SLJIT_CACHE_FLUSH(from, to)
+ 
+ #elif defined __APPLE__
++#include <libkern/OSCacheControl.h>
+ 
+ /* Supported by all macs since Mac OS 10.5.
+    However, it does not work on non-jailbroken iOS devices,
+diff -ruN a/main/reentrancy.c b/main/reentrancy.c
+--- a/main/reentrancy.c	2019-01-09 10:54:13
++++ b/main/reentrancy.c	2026-10-21 21:56:10
+@@ -130,15 +130,16 @@
+ {
+ #if defined(HAVE_OLD_READDIR_R)
+ 	int ret = 0;
++	struct dirent *ptr = NULL;
+ 	
+ 	/* We cannot rely on the return value of readdir_r
+ 	   as it differs between various platforms
+ 	   (HPUX returns 0 on success whereas Solaris returns non-zero)
+ 	 */
+ 	entry->d_name[0] = '\0';
+-	readdir_r(dirp, entry);
++	readdir_r(dirp, entry, &ptr);
+ 	
+-	if (entry->d_name[0] == '\0') {
++	if (ptr == NULL) {
+ 		*result = NULL;
+ 		ret = errno;
+ 	} else {
