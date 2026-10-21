@@ -289,7 +289,7 @@ jobs:
           # outside the docker image. `apt-get download` from a sibling container.
           docker run --rm -v "$PREFIX:/dst" ubuntu:20.04 bash -c "
             set -e
-            apt-get update -q && apt-get install -y -q libssl1.1
+            apt-get update -q && apt-get install -y -q libssl1.1 libicu66
             mkdir -p /dst/lib
             cp -L /usr/lib/x86_64-linux-gnu/libssl.so.1.1 /dst/lib/
             cp -L /usr/lib/x86_64-linux-gnu/libcrypto.so.1.1 /dst/lib/
