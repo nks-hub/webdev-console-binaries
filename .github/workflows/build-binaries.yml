@@ -331,7 +331,6 @@ jobs:
         run: |
           test "$(uname -m)" = "arm64"
           sudo xcode-select --switch /Library/Developer/CommandLineTools
-          xcodebuild -version
           xcrun --show-sdk-path
           brew install --formula autoconf bison sqlite zlib \
             libzip libpng jpeg-turbo webp curl freetype gmp icu4c \
