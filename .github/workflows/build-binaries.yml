@@ -284,6 +284,13 @@ jobs:
             make -j\$(nproc) 2>&1 | tail -20
             make install
             ls /work/install/php-${VER}/bin/ /work/install/php-${VER}/sbin/
+            # Bundle every non-glibc shared lib the binaries link against
+            # (7.4+ uses system libzip/oniguruma, absent on newer hosts).
+            mkdir -p /work/install/php-${VER}/lib
+            ldd /work/install/php-${VER}/bin/php /work/install/php-${VER}/sbin/php-fpm \
+              | grep -oE '/[^ ]+\.so[^ ]*' | sort -u \
+              | grep -vE '/(libc|libm|libdl|libpthread|librt|libresolv|libutil|ld-linux[^/]*)\.so' \
+              | xargs -r cp -Lv -t /work/install/php-${VER}/lib/
           "
           # Bundle the OpenSSL 1.1 .so files from the container so the binary runs
           # outside the docker image. `apt-get download` from a sibling container.
