@@ -48,6 +48,11 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          sparse-checkout: .github/scripts
+          path: .ci
+
       - name: Set SOURCE_DATE_EPOCH (reproducibility)
         shell: bash
         run: |
@@ -82,52 +87,35 @@ jobs:
         run: |
           set -euo pipefail
           VER="${{ steps.ver.outputs.version }}"
-          # ApacheLounge filenames embed the build date as a 6-digit suffix
-          # (httpd-2.4.66-250207-win64-VS17.zip). Always scrape the index
-          # rather than guess — the suffix changes per release.
-          HTML=$(curl -fsSL -A "Mozilla/5.0 NKS-WDC/1.0" "https://www.apachelounge.com/download/VS17/")
-          REL_PATH=$(echo "$HTML" | grep -oE "httpd-${VER}-[0-9]+-win64-VS17\\.zip" | head -1)
-          [ -z "$REL_PATH" ] && { echo "::error::Apache $VER not found on ApacheLounge VS17 index"; exit 1; }
-          URL="https://www.apachelounge.com/download/VS17/binaries/${REL_PATH}"
+          UA="Mozilla/5.0 NKS-WDC/1.0"
+          # ApacheLounge answers 200 + an HTML "requested URL was not found"
+          # page for every path that is not on disk, so `curl -f` never fails
+          # on a missing or rotated build. Take the exact href from the index
+          # (VS17 first, VS18 as fallback): file names carry a build date and
+          # mixed case (httpd-2.4.66-251206-Win64-VS17.zip).
+          URL=""
+          for VS in VS17 VS18; do
+            HREF=$(curl -fsSL -A "$UA" "https://www.apachelounge.com/download/${VS}/" \
+              | grep -ioE "href=\"[^\"]*/binaries/httpd-${VER}-[0-9]+-win64-${VS}\.zip\"" \
+              | head -1 | cut -d'"' -f2 || true)
+            if [ -n "$HREF" ]; then URL="https://www.apachelounge.com${HREF}"; break; fi
+          done
+          [ -n "$URL" ] || { echo "::error::Apache $VER not listed on the ApacheLounge VS17/VS18 indexes"; exit 1; }
           echo "Resolved ApacheLounge URL: $URL"
 
-          # Content-Type preflight — ApacheLounge serves HTML-200 with text/html
-          # when a build rotates off disk. Reject anything that isn't zip/octet-stream.
-          CT=$(curl -sI -A "Mozilla/5.0 NKS-WDC/1.0" "$URL" | tr -d '\r' | grep -i '^content-type:' | head -1 | awk '{print tolower($2)}')
+          CT=$(curl -sI -A "$UA" "$URL" | tr -d '\r' | grep -i '^content-type:' | head -1 | awk '{print tolower($2)}')
           echo "Preflight Content-Type: $CT"
           case "$CT" in
             application/zip*|application/octet-stream*|application/x-zip*) : ;;
-            *) echo "::error::Unexpected Content-Type '$CT' for $URL — ApacheLounge likely rotated the build off disk"; exit 1 ;;
+            *) echo "::error::Unexpected Content-Type '$CT' for $URL"; exit 1 ;;
           esac
 
           OUT="httpd-${VER}-windows-x64.zip"
-          curl -fsSL -A "Mozilla/5.0 NKS-WDC/1.0" -o "$OUT" "$URL"
+          curl -fsSL -A "$UA" -o "$OUT" "$URL"
           ls -lh "$OUT"
-
-          # Minimum-size sanity — Apache Windows ZIP is consistently >10 MB.
-          SIZE=$(stat -c%s "$OUT" 2>/dev/null || stat -f%z "$OUT")
-          echo "Downloaded size: $SIZE bytes"
-          if [ "$SIZE" -lt 5000000 ]; then
-            echo "::error::Downloaded file is only $SIZE bytes — Apache ZIP must be >=5 MB. ApacheLounge likely served an HTML error page."
-            head -c 200 "$OUT" | cat -v
-            exit 1
-          fi
-
-          # Magic-byte check — real ZIP starts with PK\x03\x04.
-          MAGIC=$(head -c 4 "$OUT" | xxd -p)
-          echo "Magic bytes (hex): $MAGIC"
-          case "$MAGIC" in
-            504b0304|504b0506|504b0708) : ;;
-            *) echo "::error::File does not have ZIP magic bytes (got $MAGIC, expected 504b0304). Aborting."; file "$OUT"; exit 1 ;;
-          esac
-
-          # Post-download smoke test — a genuine Apache ZIP lists 200+ entries.
-          ENTRIES=$(unzip -l "$OUT" | tail -1 | awk '{print $2}')
-          echo "Archive entry count: $ENTRIES"
-          if [ -z "$ENTRIES" ] || [ "$ENTRIES" -lt 50 ]; then
-            echo "::error::Archive contains only $ENTRIES entries (expected >=50). Refusing to publish."
-            exit 1
-          fi
+          # Shape check (size, ZIP magic, CRC, bin/httpd.exe) before the hash
+          # so an HTML page is reported as such, not as a hash mismatch.
+          bash .ci/.github/scripts/validate-archive.sh "$OUT" --min-bytes 5000000 --require '(^|/)bin/httpd\.exe$'
 
           # ── Supply-chain verification: ApacheLounge publishes a per-file
           # .txt sidecar containing multiple hashes (SHA1..SHA512) in a
@@ -136,19 +124,18 @@ jobs:
           # TODO(SECURITY.md roadmap): additionally verify the detached PGP
           # .asc signature (Steffen_Land.asc) once the ApacheLounge keyring
           # is bootstrapped into CI.
-          SUMS_URL="https://www.apachelounge.com/download/VS17/binaries/${REL_PATH}.txt"
-          curl -fsSL -A "Mozilla/5.0 NKS-WDC/1.0" "$SUMS_URL" -o al-checksums.txt
-          expected=$(awk '/^SHA256-Checksum/{found=1; next} found && NF==1 {print tolower($1); exit}' al-checksums.txt)
+          curl -fsSL -A "$UA" "${URL}.txt" -o al-checksums.txt
+          expected=$(tr -d '\r' < al-checksums.txt | awk '/^SHA256-Checksum/{found=1; next} found && NF==1 {print tolower($1); exit}')
           if [ -z "$expected" ]; then
-            echo "::error::SHA256 entry not found in $SUMS_URL" >&2
+            echo "::error::SHA256 entry not found in ${URL}.txt" >&2
             exit 1
           fi
           actual=$(sha256sum "$OUT" | awk '{print $1}')
           if [ "$expected" != "$actual" ]; then
-            echo "::error::SHA256 mismatch for ${REL_PATH} — expected $expected, got $actual" >&2
+            echo "::error::SHA256 mismatch for ${URL##*/} — expected $expected, got $actual" >&2
             exit 1
           fi
-          echo "✓ SHA256 verified (${REL_PATH}): $actual"
+          echo "✓ SHA256 verified (${URL##*/}): $actual"
 
       # ── Linux: source build with apr/apr-util/pcre2 ──
       - name: Linux — install build deps
@@ -386,6 +373,17 @@ jobs:
           # Top-level contents visibility — future broken-test state leaks
           # (rogue files dropped into $STAGE) will show up in CI logs here.
           tar -tf "$OUT" | head -30
+
+      - name: Validate archive
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          if [ "${{ matrix.target }}" = "windows-x64" ]; then
+            MIN=5000000; REQ='(^|/)bin/httpd\.exe$'
+          else
+            MIN=1000000; REQ='(^|/)bin/httpd$'
+          fi
+          bash .ci/.github/scripts/validate-archive.sh "httpd-${VER}-${{ matrix.target }}.${{ matrix.ext }}" --min-bytes "$MIN" --require "$REQ"
 
       - name: Upload to release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3.0.2
