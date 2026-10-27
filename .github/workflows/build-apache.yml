@@ -166,7 +166,8 @@ jobs:
           # bootstrapped into CI.
           curl -fsSL "https://archive.apache.org/dist/httpd/httpd-${VER}.tar.gz.sha256" -o httpd-src.tar.gz.sha256
           expected=$(awk '{print tolower($1); exit}' httpd-src.tar.gz.sha256)
-          actual=$(sha256sum httpd-src.tar.gz | awk '{print $1}')
+          # macOS runners ship shasum, not sha256sum.
+          actual=$( (sha256sum httpd-src.tar.gz 2>/dev/null || shasum -a 256 httpd-src.tar.gz) | awk '{print $1}')
           if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
             echo "::error::SHA256 mismatch for httpd-${VER}.tar.gz — expected '$expected', got '$actual'" >&2
             exit 1
