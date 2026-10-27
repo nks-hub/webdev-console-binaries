@@ -2,6 +2,14 @@
 
 All notable releases produced by this repository's workflows. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); each section is keyed by the `binaries-<app>-<version>` tag.
 
+## binaries-apache-2.4.66 and binaries-mysql-{9.7.1, 9.7.0, 9.3.0, 9.2.0, 8.4.5, 8.0.43, 8.0.42} - 2026-10-27
+
+`httpd-2.4.66-windows-x64.zip` was ApacheLounge's 2,451-byte HTML "not found" page saved under the `.zip` name: ApacheLounge answers 200 for files that are not on disk and the first publish had no content check. Re-published from `httpd-2.4.66-251206-Win64-VS17.zip` (SHA256 matches the ApacheLounge sidecar, contains `Apache24/bin/httpd.exe`). The Windows step now reads the exact link from the VS17 / VS18 index. The tar listing no longer fails on a SIGPIPE under `pipefail` (every Linux run since the validation was added hit it), and the macOS source hash falls back to `shasum`.
+
+The MySQL Windows ZIPs (and the Linux tarball for 9.7.1) are mirrored from `cdn.mysql.com`; `dev.mysql.com/get/` answers 403 to non-browser clients and `Downloads/` drops a version once the next patch ships, so the workflow falls back to `archives/`. `build-mysql.yml` takes a `platforms` input (default `windows linux macos`).
+
+Every workflow now runs `.github/scripts/validate_archive.py` before the upload step: size floor, magic bytes, a full read of the archive and the required `bin/` executable.
+
 ## binaries-php-{5.6.40, 7.0.33, 7.1.33, 7.2.34, 7.3.33, 7.4.33, 8.0.30, 8.1.34} Windows x64 - 2026-10-21
 
 The Windows ZIPs of these tags are rebuilt from the php.net source tarballs with the CVE-2026-109618 / CVE-2026-109619 backports from `.github/workflows/assets/patches/` applied (7.1-7.3 also get the `ZSTR_MAX_LEN` backport). php.net ships no fixed Windows builds for these branches, so the repackaged windows.php.net ZIPs are replaced. File name (`php-<version>-windows-x64.zip`), NTS and layout are unchanged. Toolsets: 5.6 VC11, 7.0/7.1 VC14, 7.2-7.4 VC15, 8.0/8.1 VS16, with dependencies from the PHP SDK deps for the matching VC. `oci8` and `pdo_oci` are not built (no Oracle client). The patched `php5.dll` / `php7.dll` / `php8.dll` contain `zend_mm_safe_error_ex`; the replaced ZIPs did not.
