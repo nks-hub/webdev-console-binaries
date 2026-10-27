@@ -49,6 +49,11 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          sparse-checkout: .github/scripts
+          path: .ci
+
       - name: Set SOURCE_DATE_EPOCH (reproducibility)
         shell: bash
         run: |
@@ -268,6 +273,17 @@ jobs:
             --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime \
             -cJf "${{ github.workspace }}/redis-${VER}-${{ matrix.target }}.tar.xz" $PKG_DIRS
           ls -lh "${{ github.workspace }}/redis-${VER}-${{ matrix.target }}.tar.xz"
+
+      - name: Validate archive
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          if [ "${{ matrix.target }}" = "windows-x64" ]; then
+            REQ='(^|/)redis-server\.exe$'
+          else
+            REQ='(^|/)bin/redis-server$'
+          fi
+          bash .ci/.github/scripts/validate-archive.sh "redis-${VER}-${{ matrix.target }}.${{ matrix.ext }}" --min-bytes 500000 --require "$REQ"
 
       - name: Upload to release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3.0.2

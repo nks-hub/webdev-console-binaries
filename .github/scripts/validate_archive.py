@@ -7,9 +7,10 @@ before the upload step.
 
     validate_archive.py FILE... [--min-bytes N] [--require REGEX]...
 
-For each FILE: size floor, magic bytes for the extension, full integrity read
-(zip CRC / tar stream) and, with --require, at least one member path matching
-every REGEX. Exits 1 on the first problem.
+For each FILE: size floor, magic bytes for the extension (a name with no
+archive extension must be an ELF / Mach-O / PE executable), full integrity
+read (zip CRC / tar stream) and, with --require, at least one member path
+matching every REGEX. Exits 1 on any problem.
 """
 import argparse
 import os
@@ -18,19 +19,28 @@ import sys
 import tarfile
 import zipfile
 
-MAGIC = {
-    ".zip": b"PK\x03\x04",
-    ".xz": b"\xfd7zXZ\x00",
-    ".gz": b"\x1f\x8b",
-    ".tgz": b"\x1f\x8b",
-    ".msi": b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",
-    ".exe": b"MZ",
-}
+ARCHIVE_MAGIC = (
+    (".tar.xz", (b"\xfd7zXZ\x00",)),
+    (".tar.gz", (b"\x1f\x8b",)),
+    (".tgz", (b"\x1f\x8b",)),
+    (".zip", (b"PK\x03\x04",)),
+    (".msi", (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",)),
+    (".exe", (b"MZ",)),
+)
+EXECUTABLE_MAGIC = (b"\x7fELF", b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"MZ")
 HTML_START = (b"<!doc", b"<html", b"<head", b"<?xml", b"<!--")
 
 
 class Invalid(Exception):
     pass
+
+
+def expected_magic(path):
+    lower = path.lower()
+    for suffix, magic in ARCHIVE_MAGIC:
+        if lower.endswith(suffix):
+            return magic
+    return EXECUTABLE_MAGIC
 
 
 def member_names(path):
@@ -56,11 +66,8 @@ def validate(path, min_bytes, require):
         head = f.read(8)
     if head.lstrip().lower().startswith(HTML_START):
         raise Invalid("content is an HTML/XML page, not an archive")
-
-    ext = os.path.splitext(path)[1].lower()
-    magic = MAGIC.get(ext)
-    if magic and not head.startswith(magic):
-        raise Invalid(f"bad magic bytes {head[:len(magic)].hex()} for {ext}")
+    if not any(head.startswith(m) for m in expected_magic(path)):
+        raise Invalid(f"unexpected magic bytes {head.hex()}")
 
     try:
         names = member_names(path)

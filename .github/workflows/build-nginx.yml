@@ -47,6 +47,11 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          sparse-checkout: .github/scripts
+          path: .ci
+
       - name: Set SOURCE_DATE_EPOCH (reproducibility)
         shell: bash
         run: |
@@ -253,6 +258,17 @@ jobs:
             -cJf "${{ github.workspace }}/nginx-${VER}-${{ matrix.target }}.tar.xz" \
             $PKG_DIRS
           ls -lh "${{ github.workspace }}/nginx-${VER}-${{ matrix.target }}.tar.xz"
+
+      - name: Validate archive
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          if [ "${{ matrix.target }}" = "windows-x64" ]; then
+            MIN=1000000; REQ='(^|/)nginx\.exe$'
+          else
+            MIN=200000; REQ='(^|/)sbin/nginx$'
+          fi
+          bash .ci/.github/scripts/validate-archive.sh "nginx-${VER}-${{ matrix.target }}.${{ matrix.ext }}" --min-bytes "$MIN" --require "$REQ"
 
       - name: Upload to release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3.0.2

@@ -23,6 +23,11 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 45
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          sparse-checkout: .github/scripts
+          path: .ci
+
       - name: Resolve version
         id: ver
         shell: pwsh
@@ -86,6 +91,10 @@ jobs:
           Compress-Archive -Path stage/* -DestinationPath "postgresql-$version-windows-x64.zip" -Force
           Get-ChildItem "postgresql-$version-windows-x64.zip" | Format-List Name,Length
 
+      - name: Validate archive
+        shell: bash
+        run: bash .ci/.github/scripts/validate-archive.sh "postgresql-${{ steps.ver.outputs.version }}-windows-x64.zip" --min-bytes 20000000 --require '(^|/)bin/postgres\.exe$'
+
       - name: Upload to release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3.0.2
         with:
@@ -112,6 +121,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 75
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          sparse-checkout: .github/scripts
+          path: .ci
+
       - name: Resolve version
         id: ver
         shell: bash
@@ -293,6 +307,10 @@ jobs:
           VER="${{ steps.ver.outputs.version }}"
           tar czf "postgresql-${VER}-${{ matrix.platform }}.tar.gz" -C stage .
           ls -lh "postgresql-${VER}-${{ matrix.platform }}.tar.gz"
+
+      - name: Validate archive
+        shell: bash
+        run: bash .ci/.github/scripts/validate-archive.sh "postgresql-${{ steps.ver.outputs.version }}-${{ matrix.platform }}.tar.gz" --min-bytes 10000000 --require '(^|/)bin/postgres$'
 
       - name: Upload to release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3.0.2

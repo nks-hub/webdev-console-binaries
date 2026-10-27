@@ -59,4 +59,9 @@ with tempfile.TemporaryDirectory() as d:
     assert rejects(write(d, "empty.zip", make_zip({}))), "empty archive"
     assert rejects(write(d, "page.exe", HTML)), "HTML saved as .exe"
 
+    elf = write(d, "mkcert-1.4.4-linux-x64", b"\x7fELF" + os.urandom(4096))
+    assert validate(elf, 1000, []) == (4100, 0)
+    assert rejects(write(d, "tool-1.2.3-linux-x64", HTML)), "HTML saved as a raw binary"
+    assert rejects(write(d, "text-1.2.3-linux-x64", b"just text" * 100)), "non-executable raw file"
+
 print("validate_archive: all checks passed")
