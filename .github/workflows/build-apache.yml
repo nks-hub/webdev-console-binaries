@@ -369,10 +369,12 @@ jobs:
             echo "::error::Archive contains only $ENTRIES entries (expected >=50)."
             exit 1
           fi
-          tar -tJf "$OUT" | grep -qE '(^|/)bin/httpd$' || { echo "::error::bin/httpd not present in archive"; exit 1; }
           # Top-level contents visibility — future broken-test state leaks
           # (rogue files dropped into $STAGE) will show up in CI logs here.
-          tar -tf "$OUT" | head -30
+          # `|| true`: under pipefail head closing the pipe fails tar with SIGPIPE.
+          # The bin/httpd member check lives in the "Validate archive" step
+          # (grep -q in a pipe has the same SIGPIPE problem).
+          tar -tf "$OUT" | head -30 || true
 
       - name: Validate archive
         shell: bash
