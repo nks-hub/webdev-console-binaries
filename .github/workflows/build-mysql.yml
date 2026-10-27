@@ -20,6 +20,11 @@ on:
         description: 'MySQL version, e.g. 8.4.8 or 9.6.0'
         required: true
         type: string
+      platforms:
+        description: 'Space-separated platforms to publish: windows linux macos (windows is always mirrored)'
+        required: false
+        default: 'windows linux macos'
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.inputs.version || github.ref }}
@@ -37,6 +42,11 @@ jobs:
     outputs:
       majorminor: ${{ steps.ver.outputs.majorminor }}
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          sparse-checkout: .github/scripts
+          path: .ci
+
       - name: Resolve version
         id: ver
         shell: bash
@@ -55,30 +65,48 @@ jobs:
         id: download
         shell: bash
         run: |
+          set -euo pipefail
           VER="${{ steps.ver.outputs.version }}"
           MM="${{ steps.ver.outputs.majorminor }}"
+          PLATFORMS="${{ github.event.inputs.platforms || 'windows linux macos' }}"
+          UA="Mozilla/5.0 NKS-WDC/1.0"
           ASSETS=()
 
-          # Windows x64 community zip (official, always available).
-          WIN_URL="https://dev.mysql.com/get/Downloads/MySQL-${MM}/mysql-${VER}-winx64.zip"
-          if curl -fsSL -o "mysql-${VER}-windows-x64.zip" "$WIN_URL"; then
-            ASSETS+=("mysql-${VER}-windows-x64.zip")
-          else
-            echo "::warning::MySQL ${VER} windows-x64 not published at ${WIN_URL}"
-            rm -f "mysql-${VER}-windows-x64.zip"
+          # dev.mysql.com/get/... answers 403 to anything but a browser.
+          # cdn.mysql.com serves the same files without the bot check: the
+          # current release lives under Downloads/, older ones only under
+          # archives/. A miss on both is a 404, so `curl -f` is reliable here.
+          fetch() { # <output file> <upstream file name>
+            local out="$1" name="$2" base
+            for base in "https://cdn.mysql.com/Downloads/MySQL-${MM}" "https://cdn.mysql.com/archives/mysql-${MM}"; do
+              if curl -fsSL -A "$UA" -o "$out" "${base}/${name}"; then
+                echo "fetched ${base}/${name}"
+                return 0
+              fi
+            done
+            rm -f "$out"
+            return 1
+          }
+
+          # Windows x64 community zip, always published.
+          WIN="mysql-${VER}-windows-x64.zip"
+          fetch "$WIN" "mysql-${VER}-winx64.zip" || { echo "::error::MySQL ${VER} windows-x64 zip not found on cdn.mysql.com"; exit 1; }
+          bash .ci/.github/scripts/validate-archive.sh "$WIN" --min-bytes 100000000 --require '(^|/)bin/mysqld\.exe$'
+          ASSETS+=("$WIN")
+
+          # Linux x64 generic glibc2.28 tarball, published for every release
+          # that is still listed.
+          if [[ " $PLATFORMS " == *" linux "* ]]; then
+            LIN="mysql-${VER}-linux-x64.tar.xz"
+            if fetch "$LIN" "mysql-${VER}-linux-glibc2.28-x86_64.tar.xz"; then
+              bash .ci/.github/scripts/validate-archive.sh "$LIN" --min-bytes 100000000 --require '(^|/)bin/mysqld$'
+              ASSETS+=("$LIN")
+            else
+              echo "::warning::MySQL ${VER} linux-x64 not published on cdn.mysql.com"
+            fi
           fi
 
-          # Linux x64 generic glibc2.28 tarball. Oracle publishes these
-          # for recent releases — tolerate 404 for older versions.
-          LINUX_URL="https://dev.mysql.com/get/Downloads/MySQL-${MM}/mysql-${VER}-linux-glibc2.28-x86_64.tar.xz"
-          if curl -fsSL -o "mysql-${VER}-linux-x64.tar.xz" "$LINUX_URL"; then
-            ASSETS+=("mysql-${VER}-linux-x64.tar.xz")
-          else
-            echo "::warning::MySQL ${VER} linux-x64 not published at ${LINUX_URL}"
-            rm -f "mysql-${VER}-linux-x64.tar.xz"
-          fi
-
-          ls -lh mysql-${VER}-* 2>/dev/null || echo "No artifacts downloaded"
+          ls -lh mysql-${VER}-*
 
           {
             echo "files<<__ASSETS_EOF__"
@@ -93,7 +121,7 @@ jobs:
           name: MySQL ${{ steps.ver.outputs.version }} (cross-platform binaries)
           body: |
             Mirror of [MySQL ${{ steps.ver.outputs.version }}](https://dev.mysql.com/downloads/mysql/) for use with NKS WebDev Console's `wdc binaries install mysql@${{ steps.ver.outputs.version }}` flow. macOS arm64 asset, if present, is built from source in a separate job (Oracle does not ship arm64 community zips).
-          fail_on_unmatched_files: false
+          fail_on_unmatched_files: true
           files: ${{ steps.download.outputs.files }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -104,8 +132,14 @@ jobs:
   build-macos-arm64:
     runs-on: macos-15
     needs: mirror
+    if: github.event_name != 'workflow_dispatch' || contains(github.event.inputs.platforms, 'macos')
     timeout-minutes: 120
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          sparse-checkout: .github/scripts
+          path: .ci
+
       - name: Resolve version
         id: ver
         shell: bash
@@ -125,7 +159,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VER="${{ steps.ver.outputs.version }}"
-          if gh release view "binaries-mysql-${VER}" --json assets --jq '.assets[].name' 2>/dev/null | grep -q "mysql-${VER}-macos-arm64.tar.gz"; then
+          if gh release view "binaries-mysql-${VER}" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null | grep -q "mysql-${VER}-macos-arm64.tar.gz"; then
             echo "already=true" >> $GITHUB_OUTPUT
           else
             echo "already=false" >> $GITHUB_OUTPUT
@@ -299,6 +333,13 @@ jobs:
           VER="${{ steps.ver.outputs.version }}"
           tar czf "mysql-${VER}-macos-arm64.tar.gz" -C out .
           ls -lh "mysql-${VER}-macos-arm64.tar.gz"
+
+      - name: Validate tarball
+        if: steps.existing.outputs.already != 'true'
+        shell: bash
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          bash .ci/.github/scripts/validate-archive.sh "mysql-${VER}-macos-arm64.tar.gz" --min-bytes 30000000 --require '(^|/)bin/mysqld$'
 
       - name: Upload to release
         if: steps.existing.outputs.already != 'true'
